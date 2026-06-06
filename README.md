@@ -202,6 +202,11 @@ secret or local data is ever pushed.
 
 ## Changelog
 
+- **2026-06-04** — **Catalysts, splits, auto-refresh.** Detail page gained a
+  "Catalysts & events" section: upcoming/recent stock splits (`/stocks/v1/splits`)
+  and catalysts keyword-scanned from headlines (M&A, layoffs, splits, buybacks,
+  guidance, launches). Added an optional sidebar auto-refresh (Off / 5 / 15 / 30 /
+  60 min). First open still auto-pulls if data is missing or stale.
 - **2026-06-04** — **More factors + one-command launch.** Scorecard gained PEG, FCF
   margin, multi-year margin consistency, share-count trend (buybacks vs dilution),
   and interest coverage. The dashboard now auto-runs the engine on first open if

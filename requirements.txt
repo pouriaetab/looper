@@ -1,3 +1,4 @@
 # LOOPER Phase 1 dependencies
-requests>=2.31      # HTTP calls to the Massive API
-streamlit>=1.33     # web dashboard (phone-friendly viewer)
+requests>=2.31              # HTTP calls to the Massive API
+streamlit>=1.33             # web dashboard (phone-friendly viewer)
+streamlit-autorefresh>=1.0  # optional timed auto-refresh of the dashboard

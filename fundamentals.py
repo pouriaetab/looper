@@ -357,3 +357,30 @@ def news_digest(news, price, ema_s, ema_l, rsi):
         "momentum": momentum,
         "themes": themes,
     }
+
+
+# Event types that often move a stock — scanned from recent news headlines.
+_CATALYST_KEYWORDS = {
+    "M&A / deal": ["acqui", "merger", "merge", "buyout", "takeover", "to buy ", "buys ",
+                   "acquisition", "stake in", "deal to"],
+    "Layoffs / restructuring": ["layoff", "job cut", "jobs cut", "restructur", "workforce reduction"],
+    "Stock split": ["stock split", "share split", "-for-", "split announce"],
+    "Buyback": ["buyback", "repurchase", "repurchases"],
+    "Guidance / outlook": ["guidance", "outlook", "raises forecast", "cuts forecast",
+                           "lowers guidance", "raises guidance", "warns"],
+    "New product / launch": ["launch", "unveil", "new chip", "new product"],
+}
+
+
+def catalysts(news):
+    """Flag potential catalysts (M&A, layoffs, splits, buybacks, guidance, launches)
+    by scanning recent news headlines. news is newest-first, so the first hit per
+    type is the most recent."""
+    found = {}
+    for a in news or []:
+        text = (a.get("title") or "").lower()
+        for label, kws in _CATALYST_KEYWORDS.items():
+            if label not in found and any(k in text for k in kws):
+                found[label] = a
+    return [{"type": label, "headline": a.get("title"), "url": a.get("url"),
+             "date": a.get("published")} for label, a in found.items()]

@@ -22,6 +22,12 @@ import streamlit as st
 import looper_engine as engine
 import fundamentals
 
+try:
+    from streamlit_autorefresh import st_autorefresh
+    _HAS_AUTOREFRESH = True
+except Exception:        # noqa: BLE001
+    _HAS_AUTOREFRESH = False
+
 ROOT = Path(__file__).resolve().parent
 
 st.set_page_config(page_title="LOOPER", page_icon="🔁", layout="wide")
@@ -334,9 +340,34 @@ def render_detail(result):
                        "1–3% typical, >5% high (check it's sustainable).")
         st.caption(f"TTM ratios as of {r.get('date', '—')}.")
 
+    # --- Catalysts & corporate events ---
+    news = detail.get("news") or []
+    splits = detail.get("splits") or []
+    cats = fundamentals.catalysts(news)
+    if splits or cats:
+        st.divider()
+        st.subheader("Catalysts & events")
+        if splits:
+            s0 = splits[0]
+            try:
+                ratio = f"{int(s0['split_to'])}-for-{int(s0['split_from'])}"
+            except (KeyError, TypeError, ValueError):
+                ratio = "split"
+            when = ("Upcoming" if (s0.get("execution_date", "") > dt.date.today().isoformat())
+                    else "Last")
+            typ = (s0.get("adjustment_type") or "split").replace("_", " ")
+            st.markdown(f"**{when} split:** {ratio} {typ} on {s0.get('execution_date', '—')}")
+        if cats:
+            st.markdown("**Spotted in recent news:**")
+            for c in cats:
+                link = c.get("url")
+                title = f"[{c['headline']}]({link})" if link else c["headline"]
+                date = f" ({c['date']})" if c.get("date") else ""
+                st.markdown(esc(f"- **{c['type']}** — {title}{date}"))
+        st.caption("Catalysts are keyword-matched from headlines — a heads-up to check, not confirmation.")
+
     st.divider()
     st.subheader("News & sentiment")
-    news = detail.get("news") or []
     if news:
         dig = fundamentals.news_digest(news, result["price"], result["ema_short"],
                                        result["ema_long"], result["rsi"])
@@ -400,6 +431,28 @@ def render_row(result):
 # --------------------------------------------------------------------------- #
 # Page
 # --------------------------------------------------------------------------- #
+# --- Sidebar: optional timed auto-refresh ---
+with st.sidebar:
+    st.header("Settings")
+    if _HAS_AUTOREFRESH:
+        opt = st.selectbox("Auto-refresh", ["Off", "Every 5 min", "Every 15 min",
+                                            "Every 30 min", "Every 60 min"], index=0)
+        mins = {"Off": 0, "Every 5 min": 5, "Every 15 min": 15,
+                "Every 30 min": 30, "Every 60 min": 60}[opt]
+        if mins:
+            cnt = st_autorefresh(interval=mins * 60 * 1000, key="auto_refresh")
+            if cnt and st.session_state.get("_auto_cnt") != cnt:
+                st.session_state["_auto_cnt"] = cnt
+                try:
+                    r, e = engine.run_all()
+                    st.session_state.results, st.session_state.errors = r, e
+                    st.session_state.pop("detail_cache", None)   # refresh news/financials too
+                except Exception as ex:        # noqa: BLE001
+                    st.session_state.errors = [{"ticker": "—", "error": str(ex)}]
+            st.caption(f"Auto-refreshing every {mins} min.")
+    else:
+        st.caption("For timed auto-refresh, run: pip install streamlit-autorefresh")
+
 top = st.columns([3, 1])
 with top[0]:
     st.title("🔁 LOOPER")

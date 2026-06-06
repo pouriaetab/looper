@@ -115,10 +115,17 @@ def fetch_income_statements(ticker, timeframe="annual", limit=5):
     return data.get("results") or []
 
 
+def fetch_splits(ticker, limit=5):
+    """Stock split events, newest first (catches upcoming + recent splits)."""
+    data = _get("/stocks/v1/splits",
+                {"ticker": ticker, "sort": "execution_date.desc", "limit": limit})
+    return data.get("results") or []
+
+
 def fetch_detail(ticker):
     """Live financials + income statements + news for the detail page. Each piece is
     wrapped so one missing dataset (e.g. not on your plan) doesn't break the page."""
-    detail = {"ratios": None, "income": [], "news": [], "errors": {}}
+    detail = {"ratios": None, "income": [], "news": [], "splits": [], "errors": {}}
     try:
         detail["ratios"] = fetch_ratios(ticker)
     except Exception as e:        # noqa: BLE001
@@ -131,6 +138,10 @@ def fetch_detail(ticker):
         detail["news"] = fetch_news(ticker, limit=15)
     except Exception as e:        # noqa: BLE001
         detail["errors"]["news"] = str(e)
+    try:
+        detail["splits"] = fetch_splits(ticker)
+    except Exception as e:        # noqa: BLE001
+        detail["errors"]["splits"] = str(e)
     return detail
 
 

@@ -1,0 +1,3 @@
+# LOOPER Phase 1 dependencies
+requests>=2.31      # HTTP calls to the Massive API
+streamlit>=1.33     # web dashboard (phone-friendly viewer)

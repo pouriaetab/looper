@@ -1,0 +1,47 @@
+{
+  "_comment": "Sample config. Copy to config.json and edit with your own stocks/positions. config.json is gitignored so your real cost basis and holdings stay private.",
+
+  "stocks": [
+    {
+      "ticker": "BRKR",
+      "position": { "state": "holding", "entry_price": 40.00, "shares": 1, "last_sell_price": null },
+      "analyst_target": 50.00,
+      "analyst_count": 13,
+      "target_low": 35.00,
+      "target_high": 60.00,
+      "analyst_rating": "Buy",
+      "fundamental_catalyst": false,
+      "next_earnings": null
+    },
+    {
+      "ticker": "AVGO",
+      "position": { "state": "holding", "entry_price": 260.00, "shares": 1, "last_sell_price": null },
+      "analyst_target": 489.00,
+      "analyst_count": 28,
+      "target_low": 390.00,
+      "target_high": 630.00,
+      "analyst_rating": "Strong Buy",
+      "fundamental_catalyst": false,
+      "next_earnings": null
+    }
+  ],
+
+  "reinvest_profit_pct": 0.5,
+
+  "thresholds": {
+    "rsi_overbought": 72,
+    "rsi_oversold": 35,
+    "rsi_watch": 78,
+    "target_approach_pct": 0.03,
+    "rsi_watch_buy": 42,
+    "support_approach_pct": 0.05,
+    "ema_short": 20,
+    "ema_long": 50,
+    "run_up_lookback_days": 20,
+    "run_up_min_gain_pct": 0.10,
+    "support_proximity_pct": 0.03,
+    "volume_window_days": 20,
+    "target_breakout_buffer_pct": 0.10,
+    "swing_low_lookback": 45
+  }
+}

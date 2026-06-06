@@ -1,0 +1,27 @@
+# --- Secrets: NEVER commit these ---
+.env
+.env.*
+*.key
+secrets.*
+
+# --- Personal: keep your real holdings + private notes out of the public repo ---
+config.json
+LOOPER_project_brief.md
+
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.pyc
+.python-version
+
+# --- Data / cache (local only) ---
+data/
+*.sqlite
+*.db
+*.log
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/

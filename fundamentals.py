@@ -1,7 +1,7 @@
 """
 LOOPER — Fundamental scorecard (Phase 3c)
 =========================================
-Turns raw financials into a plain-English, Buffett-style read of a business.
+Turns raw financials into a plain-English, quality + value read of a business.
 
 It answers TWO questions, kept deliberately separate from the timing engine:
   - VALUE  : is the stock cheap or expensive right now?
@@ -13,7 +13,7 @@ and a weight showing how much it moves the verdict. The two verdicts are then
 fused with the technical timing label into a portfolio-manager stance
 (Accumulate / Hold / Trim / Reduce / Exit).
 
-Lens: quality + value (Buffett). High ROE, durable margins, low debt, real cash
+Lens: quality + value. High ROE, durable margins, low debt, real cash
 flow, and a sensible price are rewarded; hot stories with weak economics are not.
 
 This is decision SUPPORT, not financial advice. Thresholds are general heuristics
@@ -44,7 +44,7 @@ FACTORS = [
          tip="Price vs book value (net worth). <1.5 value territory; naturally high for asset-light tech."),
     dict(key="price_to_free_cash_flow", label="P/FCF", cat="Valuation", weight=1.5, lower=True, fmt="x",
          bands=[(15, "Cheap", 1.0), (25, "Fair", 0.7), (40, "Elevated", 0.4), (INF, "Expensive", 0.15)],
-         tip="Price vs free cash flow. <15 attractive cash yield; the valuation Buffett cares most about."),
+         tip="Price vs free cash flow. <15 attractive cash yield; values the actual cash a business throws off."),
     dict(key="ev_to_ebitda", label="EV/EBITDA", cat="Valuation", weight=1.5, lower=True, fmt="x",
          bands=[(10, "Cheap", 1.0), (15, "Fair", 0.7), (22, "Elevated", 0.4), (INF, "High", 0.2)],
          tip="Whole-company value vs operating earnings (ignores debt structure). <10 cheap, >22 rich."),
@@ -52,7 +52,7 @@ FACTORS = [
     # ---- QUALITY (higher = better) ----
     dict(key="return_on_equity", label="ROE", cat="Quality", weight=2.5, lower=False, fmt="pct",
          bands=[(0.20, "Excellent", 1.0), (0.15, "Strong", 0.8), (0.08, "Adequate", 0.5), (-INF, "Weak", 0.2)],
-         tip="Profit on shareholders' capital. Buffett wants consistent >15%. >20% excellent, <8% weak."),
+         tip="Profit on shareholders' capital. Consistent >15% is the mark of a strong compounder; >20% excellent, <8% weak."),
     dict(key="return_on_assets", label="ROA", cat="Quality", weight=1.5, lower=False, fmt="pct",
          bands=[(0.08, "Strong", 1.0), (0.04, "Adequate", 0.6), (-INF, "Weak", 0.25)],
          tip="Profit on total assets. >8% capital-efficient, <4% weak. Comparable across capital structures."),
@@ -69,7 +69,7 @@ FACTORS = [
     # ---- FINANCIAL HEALTH ----
     dict(key="debt_to_equity", label="Debt / equity", cat="Health", weight=2.0, lower=True, fmt="ratio",
          bands=[(0.5, "Conservative", 1.0), (1.0, "Moderate", 0.7), (2.0, "Elevated", 0.4), (INF, "High", 0.15)],
-         tip="Leverage. <0.5 conservative (Buffett's preference), 1–2 elevated, >2 risky."),
+         tip="Leverage. <0.5 conservative, 1–2 elevated, >2 risky."),
     dict(key="current", label="Current ratio", cat="Health", weight=1.0, lower=False, fmt="ratio",
          bands=[(1.5, "Healthy", 1.0), (1.0, "Adequate", 0.6), (-INF, "Tight", 0.25)],
          tip="Short-term assets vs short-term bills. >1.5 comfortable, <1 a liquidity worry."),
@@ -84,6 +84,23 @@ FACTORS = [
     dict(key="eps_growth", label="EPS growth (YoY)", cat="Growth", weight=1.5, lower=False, fmt="pct",
          bands=[(0.15, "Strong", 1.0), (0.05, "Steady", 0.65), (0.0, "Flat", 0.4), (-INF, "Declining", 0.1)],
          tip="Year-over-year earnings-per-share growth. Rising EPS is the engine of long-run returns."),
+
+    # ---- ADDED FACTORS ----
+    dict(key="peg", label="PEG", cat="Valuation", weight=1.5, lower=True, fmt="ratio",
+         bands=[(1.0, "Cheap vs growth", 1.0), (2.0, "Fair", 0.7), (3.0, "Elevated", 0.4), (INF, "Expensive", 0.15)],
+         tip="P/E relative to earnings growth. <1 means growth is cheap; >2 means you're paying up for it."),
+    dict(key="fcf_margin", label="FCF margin", cat="Quality", weight=1.5, lower=False, fmt="pct",
+         bands=[(0.20, "Strong", 1.0), (0.10, "Solid", 0.7), (0.03, "Thin", 0.4), (-INF, "Weak", 0.15)],
+         tip="Free cash flow as a % of sales. >20% is excellent cash conversion; negative is a warning."),
+    dict(key="margin_cv", label="Margin consistency", cat="Quality", weight=1.5, lower=True, fmt="pct",
+         bands=[(0.10, "Very steady", 1.0), (0.20, "Steady", 0.7), (0.35, "Variable", 0.4), (INF, "Erratic", 0.15)],
+         tip="How much operating margin has wobbled over recent years (lower = steadier). Durable margins = a moat."),
+    dict(key="share_change", label="Share count trend", cat="Quality", weight=1.5, lower=True, fmt="pct",
+         bands=[(-0.02, "Buybacks", 1.0), (0.01, "Flat", 0.7), (0.05, "Mild dilution", 0.4), (INF, "Diluting", 0.15)],
+         tip="Change in diluted share count over the period. Negative = buybacks (good); positive = dilution."),
+    dict(key="interest_coverage", label="Interest coverage", cat="Health", weight=1.5, lower=False, fmt="x",
+         bands=[(8, "Strong", 1.0), (3, "Adequate", 0.6), (1, "Tight", 0.3), (-INF, "Risky", 0.1)],
+         tip="Operating income ÷ interest expense — how easily it pays debt interest. >8x comfortable, <1.5x stressed."),
 ]
 
 # Which categories roll into which verdict.
@@ -118,6 +135,39 @@ def _derive(ratios, income):
         e0, e1 = latest.get("diluted_earnings_per_share"), prior.get("diluted_earnings_per_share")
         if e0 is not None and e1 and e1 > 0:
             vals["eps_growth"] = e0 / e1 - 1
+
+    # FCF margin (free cash flow from ratios ÷ latest annual revenue)
+    if latest and latest.get("revenue") and vals.get("free_cash_flow") is not None:
+        vals["fcf_margin"] = vals["free_cash_flow"] / latest["revenue"]
+
+    # PEG (P/E ÷ EPS growth %); only meaningful with positive growth
+    pe = vals.get("price_to_earnings")
+    g = vals.get("eps_growth")
+    if pe and g and g > 0:
+        vals["peg"] = pe / (g * 100)
+
+    # Interest coverage (operating income ÷ interest expense), latest annual
+    if latest:
+        op, ie = latest.get("operating_income"), latest.get("interest_expense")
+        if op is not None and ie and ie > 0:
+            vals["interest_coverage"] = op / ie
+
+    # Operating-margin consistency over the available annual periods (coefficient of
+    # variation: stdev / mean — lower means steadier margins)
+    margins = [s["operating_income"] / s["revenue"]
+               for s in inc
+               if s.get("revenue") and s.get("operating_income") is not None and s["revenue"] > 0]
+    if len(margins) >= 3:
+        mean = sum(margins) / len(margins)
+        if mean > 0:
+            var = sum((m - mean) ** 2 for m in margins) / len(margins)
+            vals["margin_cv"] = (var ** 0.5) / mean
+
+    # Share-count trend (diluted shares newest vs oldest available period)
+    sh = [s.get("diluted_shares_outstanding") for s in inc if s.get("diluted_shares_outstanding")]
+    if len(sh) >= 2 and sh[-1] > 0:
+        vals["share_change"] = sh[0] / sh[-1] - 1   # inc is newest-first
+
     return vals
 
 

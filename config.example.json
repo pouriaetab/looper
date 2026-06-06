@@ -8,8 +8,9 @@
       "analyst_target": 50.00,
       "analyst_count": 13,
       "target_low": 35.00,
-      "target_high": 60.00,
+      "target_high": 65.00,
       "analyst_rating": "Buy",
+      "analyst_source_url": "https://www.marketbeat.com/stocks/NASDAQ/BRKR/forecast/",
       "fundamental_catalyst": false,
       "next_earnings": null
     },
@@ -21,6 +22,7 @@
       "target_low": 390.00,
       "target_high": 630.00,
       "analyst_rating": "Strong Buy",
+      "analyst_source_url": "https://www.marketbeat.com/stocks/NASDAQ/AVGO/forecast/",
       "fundamental_catalyst": false,
       "next_earnings": null
     }

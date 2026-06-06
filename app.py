@@ -14,6 +14,7 @@ by looper_engine.py on a schedule; this app is just the viewer + a Refresh butto
 """
 
 import json
+import datetime as dt
 from pathlib import Path
 
 import streamlit as st
@@ -72,10 +73,26 @@ def load_portfolio_file():
     return None, None
 
 
+def _is_stale(results):
+    """True if there's no data or it's from before today (so we should re-pull)."""
+    if not results:
+        return True
+    return (results[0].get("as_of", "")[:10] != dt.date.today().isoformat())
+
+
 if "results" not in st.session_state:
     res, errs = load_portfolio_file()
     st.session_state.results = res or []
     st.session_state.errors = errs or []
+    # Auto-run the engine on first open if data is missing or stale — so you can
+    # just `streamlit run app.py` without running the engine by hand first.
+    if _is_stale(st.session_state.results):
+        with st.spinner("Refreshing data from Massive…"):
+            try:
+                r, e = engine.run_all()
+                st.session_state.results, st.session_state.errors = r, e
+            except Exception as ex:        # noqa: BLE001
+                st.session_state.errors = [{"ticker": "—", "error": str(ex)}]
 if "detail" not in st.session_state:
     st.session_state.detail = None
 
@@ -190,7 +207,7 @@ def render_detail(result):
         + " &nbsp;&nbsp; Timing " + chip(result["headline"], {result["headline"]: COLORS.get(result["headline"], ("#5a5a5a", "#fff"))}),
         unsafe_allow_html=True,
     )
-    st.caption("Quality & Valuation = is this a good business at a good price (Buffett lens). "
+    st.caption("Quality & Valuation = is this a good business at a good price (quality + value lens). "
                "Timing = the swing signal. Stance fuses them. Decision support, not advice.")
 
     watch = result.get("watch", {})
@@ -213,17 +230,31 @@ def render_detail(result):
     st.markdown(esc(line))
 
     if result.get("analyst_target"):
-        a = f"**Analyst consensus:** ${result['analyst_target']:.2f} average"
-        if result.get("analyst_count"):
-            a += f" across {result['analyst_count']} analysts"
-        if result.get("target_low") and result.get("target_high"):
-            a += f" · range ${result['target_low']:.0f}–${result['target_high']:.0f}"
-        if result.get("analyst_rating"):
-            a += f" · rating {result['analyst_rating']}"
-        st.markdown(esc(a))
-        if result["price"] > (result.get("target_high") or float("inf")):
-            st.caption("⚠ Trading above the Street-high target — richly valued vs analysts.")
-        elif result["price"] >= result["analyst_target"]:
+        avg = result["analyst_target"]
+        lo, hi = result.get("target_low"), result.get("target_high")
+        cnt, rating = result.get("analyst_count"), result.get("analyst_rating")
+        url = result.get("analyst_source_url")
+        a = f"<b>Analyst consensus:</b> ${avg:.2f} average"
+        if cnt:
+            tip = f"Average of {cnt} analysts' 12-month price targets."
+            if lo and hi:
+                tip += f" Individual targets range ${lo:.0f} (lowest) to ${hi:.0f} (highest)."
+            if rating:
+                tip += f" Overall rating: {rating}."
+            tip += " Click to see every analyst and their target." if url else \
+                   " (Per-analyst names/targets need the Benzinga analyst add-on.)"
+            count_html = (f"<a href='{url}' target='_blank'>{cnt} analysts ↗</a>" if url
+                          else f"<span title=\"{tip}\" style='cursor:help;border-bottom:1px dotted #888'>"
+                               f"{cnt} analysts ⓘ</span>")
+            a += f" across {count_html}"
+        if lo and hi:
+            a += f" · range ${lo:.0f}–${hi:.0f} (low→high)"
+        if rating:
+            a += f" · rating {rating}"
+        st.markdown(esc(a), unsafe_allow_html=True)
+        if result["price"] > (hi or float("inf")):
+            st.caption("⚠ Trading above the highest analyst target — richly valued vs the Street.")
+        elif result["price"] >= avg:
             st.caption("⚠ Trading above the average target — limited consensus upside left.")
     else:
         st.markdown("**Analyst consensus:** not set")

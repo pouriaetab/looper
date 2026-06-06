@@ -15,7 +15,7 @@ with ▾ expander, click-through to a per-stock detail page. Stocks added manual
 in config.json for now.
 
 ### Phase 3c — fundamental scorecard  ✅ built
-- Two verdicts (Quality, Valuation) + fused PM stance, Buffett quality+value lens.
+- Two verdicts (Quality, Valuation) + fused PM stance, quality + value lens.
 - Per-factor status chips, % weights, and hover tooltips.
 - Still to add: PEG / explicit sector-relative thresholds, multi-year consistency
   (e.g. 5-yr ROE/margin stability), and insider/buyback signals.

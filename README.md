@@ -1,27 +1,63 @@
 # LOOPER
 
-A personal swing-trading assistant. Buy quality stocks, ride them up, sell near
-highs on rule-based signals, hold cash, re-enter lower, repeat the loop. See
-[`LOOPER_project_brief.md`](./LOOPER_project_brief.md) for the full strategy.
+**A rules-based swing-trading assistant that turns a discretionary "buy quality,
+sell high, re-enter lower" strategy into repeatable, explainable signals.**
 
-**Data source:** Massive API (Polygon-compatible REST), Stocks Advanced tier ($199/mo).
-**Status:** Phase 1 — single-stock connection test on BRKR.
+For each stock on a watchlist, LOOPER answers the three questions a portfolio
+manager asks — *is this a good business, is it cheap right now, and is it a good
+moment to trade?* — by combining a technical timing engine (RSI, moving averages,
+volume, analyst targets) with a fundamental scorecard (valuation, quality, health,
+growth). It distills everything into one plain-English stance — **Accumulate,
+Hold, Trim, or Exit** — and always shows the reasoning behind the call.
 
----
+Built as a personal tool but engineered like a small product: a headless Python
+engine that runs unattended on a schedule, a phone-friendly web dashboard, secrets
+kept in environment variables, and a clean split between data, logic, and UI.
 
-## Architecture (decided in Phase 1)
+> Decision support, not financial advice.
 
-LOOPER is split into two pieces so the daily work runs *locally, for free,
-independent of Claude*:
+## Features
 
-1. **Engine** (Python) — pulls data from Massive, computes signals, writes results
-   to a local file. Runs on a schedule (cron / macOS launchd) on your machine.
-2. **Dashboard** (Streamlit web app) — reads the engine's output and shows it in a
-   browser you can open from your laptop or phone.
+- **Loop timing signals** — SELL / WATCH / HOLD / RE-ENTRY from a 2-of-3 rule set
+  over RSI, EMA-20/50, price vs analyst target, and volume.
+- **Fundamental scorecard** — each stock scored on valuation, quality, health, and
+  growth; every factor carries a status, a weight, and a plain-language tooltip.
+- **Two verdicts + fused stance** — separates "good business at a good price" from
+  "good time to trade," then fuses them into a portfolio-manager call.
+- **Re-entry planner** — after a sell, sizes how much cash to reserve and where the
+  next entry zone is, in whole and fractional shares.
+- **Multi-stock dashboard** — sell and buy watchlists ranked by urgency, with
+  drill-down detail pages (financials, news + sentiment, earnings).
+- **Runs locally on a schedule** — the engine has no external-AI dependency and
+  costs nothing to run daily; the dashboard is just a viewer.
 
-Streamlit was chosen because it's pure Python (no separate front-end to learn),
-gives a phone-friendly web UI in a few lines, and the same pattern can be reused
-across your other trading projects.
+## How it works
+
+```text
+        Massive API  (prices · RSI/EMA · fundamentals · news)
+                              │
+                   looper_engine.py  ──►  data/portfolio.json
+            (timing signals + scoring, runs on a schedule)
+              ┌───────────────┼────────────────┐
+   fundamentals.py     reentry_planner.py    (per-stock results)
+ (valuation/quality/   (reserve + next
+   health/growth)        entry zone)
+                              ▼
+                           app.py
+              Streamlit dashboard  (laptop & phone)
+```
+
+1. **`looper_engine.py`** pulls daily price, RSI, EMAs, and volume for each stock in
+   `config.json`, evaluates the timing rules, and writes `data/portfolio.json`.
+   It runs standalone (cron / macOS launchd) with no AI/token cost.
+2. **`fundamentals.py`** scores each business and fuses that with the timing read
+   into a single stance.
+3. **`reentry_planner.py`** computes the reserve budget and next entry zone after a
+   sell.
+4. **`app.py`** renders it all as a portfolio dashboard you can open on any device.
+
+**Tech:** Python · Streamlit · Massive (Polygon-compatible) REST API. Secrets via
+environment variables; personal config and holdings kept out of version control.
 
 ---
 
@@ -79,9 +115,16 @@ You should see the last close price, RSI(14), EMA(20), and EMA(50).
 ### 4. Run the loop engine and dashboard
 
 ```bash
+streamlit run app.py             # opens the dashboard; auto-pulls data on first open
+```
+
+The dashboard runs the engine itself on first open if data is missing or from a
+previous day, so `streamlit run app.py` is all you need day to day. Run the engine
+directly only for the headless scheduled job or to check one stock:
+
+```bash
 python looper_engine.py          # checks EVERY stock in config.json -> data/portfolio.json
 python looper_engine.py AVGO     # or just one stock
-streamlit run app.py             # opens the portfolio dashboard
 ```
 
 Streamlit prints a **Local URL** (for this computer) and a **Network URL**
@@ -159,6 +202,11 @@ secret or local data is ever pushed.
 
 ## Changelog
 
+- **2026-06-04** — **More factors + one-command launch.** Scorecard gained PEG, FCF
+  margin, multi-year margin consistency, share-count trend (buybacks vs dilution),
+  and interest coverage. The dashboard now auto-runs the engine on first open if
+  data is missing or stale, so `streamlit run app.py` is all that's needed. Analyst
+  count links to the full analyst list; removed name references from the docs/code.
 - **2026-06-04** — **Analyst consensus detail.** `analyst_target` is now explicitly
   the aggregated average; added `analyst_count`, `target_low`, `target_high`, and
   `analyst_rating` per stock, shown on the detail page ("$X average across N
@@ -173,7 +221,7 @@ secret or local data is ever pushed.
   News section now shows an overall sentiment read, a one-line momentum summary,
   and top themes (all derived locally — no token cost). Set next-earnings dates.
 - **2026-06-04** — **Phase 3c: fundamental scorecard** (`fundamentals.py`). A
-  Buffett-style, quality+value read of each business: valuation (P/E, P/S, P/B,
+  quality + value read of each business: valuation (P/E, P/S, P/B,
   P/FCF, EV/EBITDA), quality (ROE, ROA, gross & operating margins, FCF), health
   (debt/equity, current, quick) and growth (revenue & EPS YoY, from income
   statements). Every factor gets a status chip, a hover tooltip (meaning + typical

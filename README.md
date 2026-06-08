@@ -43,8 +43,9 @@ kept in environment variables, and a clean split between data, logic, and UI.
  (valuation/quality/   (reserve + next
    health/growth)        entry zone)
                               ▼
-                           app.py
-              Streamlit dashboard  (laptop & phone)
+                api.py  (FastAPI JSON API)
+                              ▼
+              frontend/  (React, laptop & phone)
 ```
 
 1. **`looper_engine.py`** pulls daily price, RSI, EMAs, and volume for each stock in
@@ -54,10 +55,12 @@ kept in environment variables, and a clean split between data, logic, and UI.
    into a single stance.
 3. **`reentry_planner.py`** computes the reserve budget and next entry zone after a
    sell.
-4. **`app.py`** renders it all as a portfolio dashboard you can open on any device.
+4. **`api.py`** exposes all of it as a JSON API; the **React app in `frontend/`**
+   renders the portfolio, detail pages, and the add-holding form.
 
-**Tech:** Python · Streamlit · Massive (Polygon-compatible) REST API. Secrets via
-environment variables; personal config and holdings kept out of version control.
+**Tech:** Python · FastAPI · React (Vite) · Massive (Polygon-compatible) REST API.
+Secrets via environment variables; personal config and holdings kept out of
+version control.
 
 ---
 
@@ -112,25 +115,43 @@ python test_massive_connection.py AAPL      # or any ticker
 
 You should see the last close price, RSI(14), EMA(20), and EMA(50).
 
-### 4. Run the loop engine and dashboard
+### 4. Run the backend (FastAPI) and frontend (React)
+
+Open two terminals.
+
+**Terminal 1 — backend (from the repo root, venv active):**
 
 ```bash
-streamlit run app.py             # opens the dashboard; auto-pulls data on first open
+uvicorn api:app --reload --port 8000      # JSON API; docs at http://localhost:8000/docs
 ```
 
-The dashboard runs the engine itself on first open if data is missing or from a
-previous day, so `streamlit run app.py` is all you need day to day. Run the engine
-directly only for the headless scheduled job or to check one stock:
+**Terminal 2 — frontend (needs Node.js installed):**
 
 ```bash
-python looper_engine.py          # checks EVERY stock in config.json -> data/portfolio.json
+cd frontend
+npm install          # first time only
+npm run dev          # opens the React app at http://localhost:5173
+```
+
+Open **http://localhost:5173**. The React app calls the API (Vite proxies `/api`
+to port 8000, so no CORS hassle). To view on your phone, run the frontend with
+`npm run dev -- --host` and open the Network URL it prints (phone + computer on the
+same Wi-Fi).
+
+**Adding holdings:** use the **Add / update a holding** form in the app sidebar
+(symbol, buy price, shares, status) — no need to hand-edit `config.json`.
+
+The API routes: `GET /api/portfolio`, `GET /api/stock/{ticker}` (signals +
+scorecard + fused stance + news + catalysts), `GET /api/config`,
+`POST /api/stocks`, `PATCH /api/stocks/{ticker}` (e.g. mark sold),
+`DELETE /api/stocks/{ticker}`.
+
+You can also run the engine directly (for the scheduled job or a quick check):
+
+```bash
+python looper_engine.py          # checks EVERY stock -> data/portfolio.json
 python looper_engine.py AVGO     # or just one stock
 ```
-
-Streamlit prints a **Local URL** (for this computer) and a **Network URL**
-(open that on your phone — phone and computer must share the same Wi-Fi).
-Edit `config.json` to change the ticker, your position state (`holding` vs
-`cash`), the analyst target, or the signal thresholds.
 
 ### 5. (Later) Schedule the daily run locally
 
@@ -202,6 +223,17 @@ secret or local data is ever pushed.
 
 ## Changelog
 
+- **2026-06-04** — **Moved to FastAPI + React.** Retired the Streamlit app; the UI
+  is now a React (Vite) app in `frontend/` that consumes the FastAPI JSON API —
+  portfolio with sell/buy sections, per-stock detail (stance, scorecard, signals,
+  re-entry plan, catalysts, news), and the add/remove-holding form. Backend and
+  frontend run separately (`uvicorn api:app` + `npm run dev`).
+- **2026-06-04** — **FastAPI layer + add-holding form.** New `api.py` exposes the
+  engine as a JSON API (portfolio, per-stock signals/scorecard/stance, and
+  add/patch/remove holdings) with CORS, so a React or other front-end can be added
+  without changing the logic. The dashboard sidebar gained an "Add / update a
+  holding" form (and a remove control) that writes to `config.json` — no more
+  hand-editing. Engine gained `add_stock`/`update_stock`/`remove_stock`/`save_config`.
 - **2026-06-04** — **Catalysts, splits, auto-refresh.** Detail page gained a
   "Catalysts & events" section: upcoming/recent stock splits (`/stocks/v1/splits`)
   and catalysts keyword-scanned from headlines (M&A, layoffs, splits, buybacks,

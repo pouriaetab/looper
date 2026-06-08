@@ -9,6 +9,7 @@ export default function App() {
   const [err, setErr] = useState(null)
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
+  const [showSidebar, setShowSidebar] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -27,6 +28,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
+        <button className="toggle" onClick={() => setShowSidebar(v => !v)} aria-label="Toggle holdings panel">☰</button>
         <h1>🔁 LOOPER</h1>
         <span className="tag">portfolio of active loops</span>
         <button className="refresh" onClick={load} disabled={loading}>
@@ -35,12 +37,23 @@ export default function App() {
       </header>
 
       <div className="layout">
-        <aside className="sidebar">
-          <AddHolding onChange={load} />
-        </aside>
+        {showSidebar && (
+          <aside className="sidebar">
+            <AddHolding onChange={load} />
+          </aside>
+        )}
 
         <main className="content">
-          {err && <div className="error">Error: {err}</div>}
+          {err && (
+            <div className="error">
+              Couldn’t reach the backend ({err}).
+              <div className="muted small">
+                Make sure it’s running (the <code>./run.sh</code> launcher starts it on port 8000),
+                then click retry. Open the app at <b>http://localhost:5173</b>, not :8000.
+              </div>
+              <button onClick={load} style={{ marginTop: 8 }}>Retry</button>
+            </div>
+          )}
           {detail ? (
             <StockDetail ticker={detail} onBack={() => setDetail(null)} />
           ) : data ? (
@@ -51,9 +64,7 @@ export default function App() {
         </main>
       </div>
 
-      <footer className="foot">
-        Decision support, not financial advice.
-      </footer>
+      <footer className="foot">Decision support, not financial advice.</footer>
     </div>
   )
 }

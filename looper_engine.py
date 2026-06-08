@@ -6,8 +6,8 @@ evaluates the SELL, RE-ENTRY, and STOP-LOOP rule sets from the project brief
 (each fires when 2 of 3 conditions are true).
 
 Design: this file is self-contained and has NO Claude/AI dependency. Run it on a
-schedule (cron / launchd) and it writes data/<TICKER>_status.json. The Streamlit
-dashboard (app.py) just reads that file, so the daily run is free and local.
+schedule (cron / launchd) and it writes data/<TICKER>_status.json. The FastAPI
+layer (api.py) and React frontend just read that, so the daily run is free and local.
 
 Usage:
     python looper_engine.py            # uses config.json
@@ -408,6 +408,63 @@ def load_config():
             "fundamental_catalyst": cfg.get("fundamental_catalyst", False),
         }]
     return cfg
+
+
+def save_config(cfg):
+    with open(ROOT / "config.json", "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def add_stock(ticker, entry_price, shares=1, state="holding",
+              analyst_target=None, last_sell_price=None, **extra):
+    """Add or replace a holding in config.json (used by the dashboard form + API)."""
+    cfg = load_config()
+    ticker = ticker.strip().upper()
+    if not ticker:
+        raise ValueError("Ticker is required.")
+    stock = {
+        "ticker": ticker,
+        "position": {"state": state, "entry_price": float(entry_price),
+                     "shares": float(shares), "last_sell_price": last_sell_price},
+        "analyst_target": analyst_target,
+        "fundamental_catalyst": False,
+        "next_earnings": None,
+    }
+    stock.update({k: v for k, v in extra.items() if v is not None})
+    cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker] + [stock]
+    save_config(cfg)
+    return stock
+
+
+def update_stock(ticker, **fields):
+    """Patch an existing holding (e.g. flip state to 'cash' + set last_sell_price)."""
+    cfg = load_config()
+    ticker = ticker.strip().upper()
+    found = None
+    for s in cfg.get("stocks", []):
+        if s["ticker"].upper() == ticker:
+            found = s
+            pos = s.setdefault("position", {})
+            for k in ("state", "entry_price", "shares", "last_sell_price"):
+                if fields.get(k) is not None:
+                    pos[k] = fields[k]
+            for k in ("analyst_target", "next_earnings", "fundamental_catalyst",
+                      "analyst_count", "target_low", "target_high", "analyst_rating",
+                      "analyst_source_url"):
+                if k in fields:
+                    s[k] = fields[k]
+    if found is None:
+        raise ValueError(f"{ticker} not found in config.")
+    save_config(cfg)
+    return found
+
+
+def remove_stock(ticker):
+    cfg = load_config()
+    ticker = ticker.strip().upper()
+    cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker]
+    save_config(cfg)
+    return cfg["stocks"]
 
 
 def _stock_cfg(cfg, stock):

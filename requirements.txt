@@ -1,4 +1,4 @@
-# LOOPER Phase 1 dependencies
-requests>=2.31              # HTTP calls to the Massive API
-streamlit>=1.33             # web dashboard (phone-friendly viewer)
-streamlit-autorefresh>=1.0  # optional timed auto-refresh of the dashboard
+# LOOPER Python backend dependencies (the React frontend lives in ./frontend)
+requests>=2.31      # HTTP calls to the Massive API
+fastapi>=0.110      # JSON API consumed by the React frontend
+uvicorn>=0.29       # ASGI server to run the FastAPI app

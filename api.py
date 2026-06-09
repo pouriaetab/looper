@@ -45,6 +45,8 @@ class StockIn(BaseModel):
     state: str = "holding"               # "holding" or "cash"
     analyst_target: Optional[float] = None
     last_sell_price: Optional[float] = None
+    acquired_date: Optional[str] = None  # YYYY-MM-DD format
+    when: Optional[str] = None  # optional ISO date/datetime for the ledger; defaults to now
 
 
 class StockPatch(BaseModel):
@@ -54,6 +56,13 @@ class StockPatch(BaseModel):
     last_sell_price: Optional[float] = None
     analyst_target: Optional[float] = None
     next_earnings: Optional[str] = None
+    acquired_date: Optional[str] = None
+
+
+class SellIn(BaseModel):
+    shares: float
+    price: float
+    when: Optional[str] = None  # optional ISO datetime; defaults to now
 
 
 @app.get("/api/portfolio")
@@ -95,7 +104,8 @@ def add(stock: StockIn):
     try:
         return engine.add_stock(stock.ticker, stock.entry_price, stock.shares,
                                 state=stock.state, analyst_target=stock.analyst_target,
-                                last_sell_price=stock.last_sell_price)
+                                last_sell_price=stock.last_sell_price, when=stock.when,
+                                acquired_date=stock.acquired_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -108,6 +118,93 @@ def patch(ticker: str, body: StockPatch):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.post("/api/stocks/{ticker}/sell")
+def sell(ticker: str, body: SellIn):
+    """Record a sale (date/time auto-stamped). Full sell removes the stock;
+    partial sell keeps it with reduced shares. Always logged to the ledger."""
+    try:
+        return engine.sell_stock(ticker, body.shares, body.price, when=body.when)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/tally")
+def tally():
+    """Portfolio totals: holdings, realized vs unrealized profit, net taken, reserve."""
+    return engine.portfolio_tally()
+
+
+@app.get("/api/ledger")
+def ledger():
+    """The full transaction history (the analysis dataset)."""
+    return {"rows": engine.read_ledger()}
+
+
 @app.delete("/api/stocks/{ticker}")
 def delete(ticker: str):
     return {"stocks": engine.remove_stock(ticker)}
+
+
+# ============================================================================
+# Phase 4: Candidate Scanner + Watchlist
+# ============================================================================
+@app.get("/api/candidates")
+def get_candidates(limit: int = 10):
+    """Scan for quality stocks that are oversold (RSI < 35) or overbought (RSI > 72)."""
+    try:
+        return {"candidates": engine.scan_candidates(limit=limit)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Get the manual watchlist of stocks to monitor."""
+    cfg = engine.load_config()
+    watchlist = cfg.get("watchlist", [])
+    return {"watchlist": watchlist}
+
+
+@app.post("/api/watchlist")
+def add_to_watchlist(ticker: str, notes: Optional[str] = None):
+    """Add a stock to the manual watchlist."""
+    cfg = engine.load_config()
+    ticker = ticker.strip().upper()
+    if not ticker:
+        raise HTTPException(status_code=400, detail="Ticker is required.")
+
+    watchlist = cfg.setdefault("watchlist", [])
+    # Check if already in watchlist
+    if any(w["ticker"] == ticker for w in watchlist):
+        raise HTTPException(status_code=400, detail=f"{ticker} already in watchlist.")
+
+    # Try to fetch current data for the stock
+    try:
+        bars = engine.fetch_daily_bars(ticker, days=5)
+        rsi_data = engine.fetch_rsi_series(ticker, 14, limit=1)
+        if bars and rsi_data:
+            price = bars[-1]["c"]
+            rsi = rsi_data[0]
+            entry = {
+                "ticker": ticker,
+                "added_date": engine.dt.datetime.now().isoformat(timespec="seconds"),
+                "price_when_added": round(price, 2),
+                "rsi_when_added": round(rsi, 1),
+                "notes": notes,
+            }
+            watchlist.append(entry)
+            engine.save_config(cfg)
+            return {"added": entry, "watchlist": watchlist}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not fetch {ticker}: {str(e)}")
+
+
+@app.delete("/api/watchlist/{ticker}")
+def remove_from_watchlist(ticker: str):
+    """Remove a stock from the manual watchlist."""
+    cfg = engine.load_config()
+    ticker = ticker.strip().upper()
+    watchlist = cfg.get("watchlist", [])
+    cfg["watchlist"] = [w for w in watchlist if w["ticker"] != ticker]
+    engine.save_config(cfg)
+    return {"removed": ticker, "watchlist": cfg["watchlist"]}

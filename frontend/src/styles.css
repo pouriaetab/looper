@@ -70,18 +70,25 @@ input:focus, select:focus {
 /* Layout grid */
 .layout { display: flex; gap: 24px; margin-top: 0; align-items: flex-start; }
 
-.sidebar { flex: 0 0 280px; }
+.sidebar { flex: 0 0 var(--sw, 400px); width: var(--sw, 400px); }
 
 .content { flex: 1; min-width: 0; }
 
+/* Draggable divider between sidebar and content */
+.resizer {
+  flex: 0 0 6px; align-self: stretch; cursor: col-resize;
+  border-radius: 3px; background: transparent; transition: background 0.15s ease;
+}
+.resizer:hover, .resizer:active { background: var(--accent); opacity: 0.4; }
+
 @media (max-width: 900px) {
   .layout { gap: 16px; }
-  .sidebar { flex: 0 0 240px; }
 }
 
 @media (max-width: 760px) {
   .layout { flex-direction: column; }
   .sidebar { flex: none; width: 100%; }
+  .resizer { display: none; }
 }
 
 /* Portfolio sections */
@@ -162,8 +169,11 @@ input:focus, select:focus {
 
 .hold {
   display: flex; justify-content: space-between; align-items: center;
+  gap: 8px; flex-wrap: nowrap; white-space: nowrap;
   font-size: 13px; padding: 8px 0; border-bottom: 1px solid var(--border);
 }
+
+.hold > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 .hold:last-child { border-bottom: none; }
 
@@ -259,3 +269,37 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border);
   font-weight: 500;
 }
+
+/* Portfolio tally (totals strip) */
+.tally {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 0 0 16px 0;
+}
+.tcard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: var(--shadow-sm);
+}
+.tcard .tlabel {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.tcard .tvalue {
+  font-size: 20px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+.tcard .tsub {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.tcard.pos .tvalue { color: var(--success); }
+.tcard.neg .tvalue { color: var(--danger); }

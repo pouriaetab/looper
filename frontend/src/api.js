@@ -21,3 +21,27 @@ export const addStock = (body) =>
 
 export const removeStock = (ticker) =>
   fetch(`/api/stocks/${ticker}`, { method: 'DELETE' }).then(j)
+
+export const sellStock = (ticker, body) =>
+  fetch(`/api/stocks/${ticker}/sell`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(j)
+
+export const getTally = () => fetch('/api/tally').then(j)
+export const getLedger = () => fetch('/api/ledger').then(j)
+
+// Phase 4: Candidates & Watchlist
+export const getCandidates = (limit = 10) => fetch(`/api/candidates?limit=${limit}`).then(j)
+
+export const getWatchlist = () => fetch('/api/watchlist').then(j)
+
+export const addToWatchlist = (ticker, notes = null) =>
+  fetch(`/api/watchlist?ticker=${ticker}${notes ? `&notes=${encodeURIComponent(notes)}` : ''}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  }).then(j)
+
+export const removeFromWatchlist = (ticker) =>
+  fetch(`/api/watchlist/${ticker}`, { method: 'DELETE' }).then(j)

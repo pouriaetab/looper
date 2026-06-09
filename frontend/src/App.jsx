@@ -3,6 +3,7 @@ import { getPortfolio } from './api'
 import Portfolio from './components/Portfolio'
 import StockDetail from './components/StockDetail'
 import AddHolding from './components/AddHolding'
+import Tally from './components/Tally'
 
 export default function App() {
   const [data, setData] = useState(null)
@@ -10,6 +11,28 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(
+    () => Number(localStorage.getItem('looperSidebarW')) || 400
+  )
+
+  // Drag the divider to resize the sidebar (240–640px), remembered across sessions.
+  const startResize = (e) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth
+    let latest = startW
+    const onMove = (ev) => {
+      latest = Math.min(640, Math.max(240, startW + ev.clientX - startX))
+      setSidebarWidth(latest)
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      localStorage.setItem('looperSidebarW', String(latest))
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -38,12 +61,16 @@ export default function App() {
 
       <div className="layout">
         {showSidebar && (
-          <aside className="sidebar">
-            <AddHolding onChange={load} />
-          </aside>
+          <>
+            <aside className="sidebar" style={{ '--sw': sidebarWidth + 'px' }}>
+              <AddHolding onChange={load} />
+            </aside>
+            <div className="resizer" onMouseDown={startResize} title="Drag to resize the panel" />
+          </>
         )}
 
         <main className="content">
+          {!detail && <Tally refreshKey={data} />}
           {err && (
             <div className="error">
               Couldn’t reach the backend ({err}).

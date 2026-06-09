@@ -1,14 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// In dev, the React app runs on :5173 and proxies /api calls to the FastAPI
-// backend on :8000, so there are no CORS issues and you use one URL in the browser.
+// The React app proxies /api calls to the FastAPI backend so there are no CORS
+// issues. Ports are read from the environment (BACKEND_PORT / FRONTEND_PORT) so
+// Control Deck can assign unique ones; they fall back to the defaults otherwise.
+const FRONTEND_PORT = Number(process.env.FRONTEND_PORT) || 5173
+const BACKEND_PORT = Number(process.env.BACKEND_PORT) || 8000
+
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: FRONTEND_PORT,
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': `http://localhost:${BACKEND_PORT}`,
     },
   },
 })

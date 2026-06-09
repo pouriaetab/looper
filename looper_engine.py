@@ -18,6 +18,7 @@ The API key is read from the MASSIVE_API_KEY environment variable (see README).
 
 import os
 import sys
+import csv
 import json
 import datetime as dt
 from pathlib import Path
@@ -30,6 +31,46 @@ BASE = "https://api.massive.com"
 API_KEY = os.environ.get("MASSIVE_API_KEY")
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
+
+# Append-only transaction ledger (the permanent dataset for later analysis).
+LEDGER = DATA_DIR / "ledger.csv"
+LEDGER_FIELDS = [
+    "timestamp", "date", "action", "ticker", "shares", "price",
+    "entry_price", "proceeds", "cost_basis", "realized_profit",
+    "net_profit_taken", "reentry_reserve", "shares_remaining", "note",
+]
+
+
+def _append_ledger(row: dict) -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    is_new = not LEDGER.exists()
+    with open(LEDGER, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LEDGER_FIELDS)
+        if is_new:
+            writer.writeheader()
+        writer.writerow({k: row.get(k, "") for k in LEDGER_FIELDS})
+
+
+def read_ledger() -> list:
+    if not LEDGER.exists():
+        return []
+    with open(LEDGER, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _now_parts(when=None):
+    moment = dt.datetime.now() if not when else dt.datetime.fromisoformat(when)
+    return moment.isoformat(timespec="seconds"), moment.strftime("%Y-%m-%d")
+
+
+def _last_price(ticker: str):
+    path = DATA_DIR / f"{ticker.upper()}_status.json"
+    if not path.exists():
+        return None
+    try:
+        return float(json.load(open(path)).get("price"))
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
@@ -416,8 +457,11 @@ def save_config(cfg):
 
 
 def add_stock(ticker, entry_price, shares=1, state="holding",
-              analyst_target=None, last_sell_price=None, **extra):
-    """Add or replace a holding in config.json (used by the dashboard form + API)."""
+              analyst_target=None, last_sell_price=None, when=None, **extra):
+    """Add or replace a holding in config.json (used by the dashboard form + API).
+
+    `when` is an optional ISO date/datetime for the ledger entry; defaults to now.
+    """
     cfg = load_config()
     ticker = ticker.strip().upper()
     if not ticker:
@@ -431,9 +475,145 @@ def add_stock(ticker, entry_price, shares=1, state="holding",
         "next_earnings": None,
     }
     stock.update({k: v for k, v in extra.items() if v is not None})
+
+    # Was this ticker previously held-then-sold (state "cash")? Then it's a re-entry.
+    prior = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker), None)
+    prior_state = (prior or {}).get("position", {}).get("state")
+    action = "reentry" if prior_state == "cash" else "buy"
+
     cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker] + [stock]
     save_config(cfg)
+
+    ts, day = _now_parts(when)
+    _append_ledger({
+        "timestamp": ts, "date": day, "action": action, "ticker": ticker,
+        "shares": float(shares), "price": float(entry_price), "entry_price": float(entry_price),
+        "cost_basis": round(float(shares) * float(entry_price), 4),
+        "shares_remaining": float(shares),
+        "note": "re-entry after sell" if action == "reentry" else "",
+    })
     return stock
+
+
+def sell_stock(ticker, shares, price, when=None, reinvest_pct=None):
+    """Record a sale: log it to the ledger, reduce shares, and apply the
+    reserve/profit split. A full sell removes the stock from the active list;
+    a partial sell keeps it (with fewer shares) in the holdings/sell section.
+    The ledger always keeps the complete history regardless.
+    """
+    cfg = load_config()
+    ticker = ticker.strip().upper()
+    stock = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker), None)
+    if stock is None:
+        raise ValueError(f"{ticker} not found in config.")
+
+    pos = stock.get("position", {})
+    held = float(pos.get("shares", 0) or 0)
+    entry = float(pos.get("entry_price", 0) or 0)
+    shares = float(shares)
+    price = float(price)
+    if shares <= 0:
+        raise ValueError("Shares sold must be greater than zero.")
+    if shares > held + 1e-9:
+        raise ValueError(f"Cannot sell {shares} shares; only {held} held.")
+
+    reinvest = cfg.get("reinvest_profit_pct", 0.5) if reinvest_pct is None else float(reinvest_pct)
+    proceeds = shares * price
+    cost_basis = shares * entry
+    realized = proceeds - cost_basis
+    gain = max(realized, 0.0)
+    # Reserve = original cost of the sold shares + a slice of the profit (never < cost).
+    reserve = cost_basis + reinvest * gain
+    net_taken = realized - reinvest * gain  # for a loss this equals the (negative) realized
+    remaining = held - shares
+
+    ts, day = _now_parts(when)
+    _append_ledger({
+        "timestamp": ts, "date": day, "action": "sell", "ticker": ticker,
+        "shares": shares, "price": price, "entry_price": entry,
+        "proceeds": round(proceeds, 4), "cost_basis": round(cost_basis, 4),
+        "realized_profit": round(realized, 4), "net_profit_taken": round(net_taken, 4),
+        "reentry_reserve": round(reserve, 4), "shares_remaining": round(max(remaining, 0.0), 6),
+    })
+
+    pos["last_sell_price"] = price
+    removed = remaining <= 1e-9
+    if removed:
+        cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker]
+    else:
+        pos["shares"] = remaining
+        stock["position"] = pos
+    save_config(cfg)
+
+    return {
+        "ticker": ticker,
+        "removed": removed,
+        "shares_remaining": max(remaining, 0.0),
+        "realized_profit": round(realized, 4),
+        "net_profit_taken": round(net_taken, 4),
+        "reentry_reserve": round(reserve, 4),
+    }
+
+
+def portfolio_tally():
+    """Live totals for the dashboard: holdings, realized vs unrealized profit,
+    net profit taken, and re-entry reserve. Unrealized uses the last computed
+    price per ticker (data/<TICKER>_status.json) so it needs no network call.
+    """
+    cfg = load_config()
+    stocks = cfg.get("stocks", [])
+    reinvest = cfg.get("reinvest_profit_pct", 0.5)
+
+    holdings = []
+    total_shares = total_cost = current_value = priced_cost = 0.0
+    priced = 0
+    for s in stocks:
+        pos = s.get("position", {})
+        shares = float(pos.get("shares", 0) or 0)
+        if shares <= 0 or pos.get("state") == "cash":
+            continue
+        entry = float(pos.get("entry_price", 0) or 0)
+        last = _last_price(s["ticker"])
+        cost = shares * entry
+        total_shares += shares
+        total_cost += cost
+        unreal = None
+        if last is not None:
+            current_value += shares * last
+            priced_cost += cost
+            unreal = round((last - entry) * shares, 2)
+            priced += 1
+        holdings.append({
+            "ticker": s["ticker"], "shares": shares, "entry_price": entry,
+            "last_price": last, "cost_basis": round(cost, 2), "unrealized": unreal,
+        })
+
+    ledger = read_ledger()
+
+    def _sum(field):
+        total = 0.0
+        for row in ledger:
+            if row.get("action") == "sell" and row.get(field):
+                try:
+                    total += float(row[field])
+                except ValueError:
+                    pass
+        return round(total, 2)
+
+    return {
+        "positions": len(holdings),
+        "total_shares": round(total_shares, 6),
+        "total_cost_basis": round(total_cost, 2),
+        "current_value": round(current_value, 2),
+        "unrealized_profit": round(current_value - priced_cost, 2),
+        "unrealized_priced": priced,
+        "unrealized_total": len(holdings),
+        "realized_profit": _sum("realized_profit"),
+        "net_profit_taken": _sum("net_profit_taken"),
+        "reentry_reserve": _sum("reentry_reserve"),
+        "reinvest_profit_pct": reinvest,
+        "holdings": holdings,
+    }
 
 
 def update_stock(ticker, **fields):
@@ -450,7 +630,7 @@ def update_stock(ticker, **fields):
                     pos[k] = fields[k]
             for k in ("analyst_target", "next_earnings", "fundamental_catalyst",
                       "analyst_count", "target_low", "target_high", "analyst_rating",
-                      "analyst_source_url"):
+                      "analyst_source_url", "acquired_date"):
                 if k in fields:
                     s[k] = fields[k]
     if found is None:
@@ -515,7 +695,7 @@ def run_all(save=True):
     """Evaluate every stock in config.json. Writes per-stock files plus a combined
     data/portfolio.json. Errors on one stock don't stop the others."""
     if not API_KEY:
-        raise SystemExit("MASSIVE_API_KEY is not set. Export it first (see README).")
+        raise RuntimeError("MASSIVE_API_KEY is not set. Export it first (see README).")
     cfg = load_config()
     results, errors = [], []
     for stock in cfg["stocks"]:
@@ -568,6 +748,79 @@ def _print(result):
                       f"shares ({s['vs_original']:+.2f} vs sold)")
         print(f"    {p['note']}")
     print()
+
+
+def scan_candidates(tickers=None, limit=10):
+    """Phase 4: Scan for quality stocks that are oversold (RSI < 35) or overbought (RSI > 72).
+    Returns candidates with price, RSI, analyst target, and quality score.
+    If tickers not provided, scans a default watchlist of popular liquid stocks.
+    """
+    if not API_KEY:
+        raise RuntimeError("MASSIVE_API_KEY is not set.")
+
+    # Default universe: popular, liquid, quality-focused stocks
+    if not tickers:
+        tickers = [
+            "NVDA", "AVGO", "ADBE", "ASML", "CDNS", "COST", "CRM", "DDOG",
+            "ENPH", "GOOG", "GOOGL", "HUBS", "IRM", "KLAC", "LRCX", "META",
+            "MSFT", "NFLX", "NOW", "PSTG", "PYPL", "SNOW", "SPLK", "TTD",
+            "TSLA", "WDAY", "ZM", "BRKR", "ACGL", "AEP", "BDX", "JNJ"
+        ]
+
+    candidates = []
+    for ticker in tickers:
+        try:
+            # Fetch current RSI and price
+            rsi_data = fetch_rsi_series(ticker, 14, limit=1)
+            rsi = rsi_data[0] if rsi_data else None
+
+            if rsi is None:
+                continue
+
+            # Get current price via EMA (as proxy) or bars
+            bars = fetch_daily_bars(ticker, days=5)
+            if not bars:
+                continue
+
+            price = bars[-1]["c"]  # last close
+            ema_20 = fetch_ema(ticker, 20)
+            ema_50 = fetch_ema(ticker, 50)
+
+            # Determine if oversold or overbought
+            if rsi < 35:
+                category = "oversold"
+                urgency = (35 - rsi) / 35  # closer to 0, more oversold
+            elif rsi > 72:
+                category = "overbought"
+                urgency = (rsi - 72) / 28  # closer to 100, more overbought
+            else:
+                continue  # skip neutral RSI
+
+            # Load analyst target if we have config
+            try:
+                cfg = load_config()
+                stock_cfg = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker.upper()), None)
+                analyst_target = stock_cfg.get("analyst_target") if stock_cfg else None
+            except Exception:
+                analyst_target = None
+
+            candidates.append({
+                "ticker": ticker,
+                "price": round(price, 2),
+                "rsi": round(rsi, 1),
+                "ema_20": round(ema_20, 2),
+                "ema_50": round(ema_50, 2),
+                "category": category,
+                "urgency": round(urgency, 2),
+                "analyst_target": analyst_target,
+                "last_updated": dt.datetime.now().isoformat(timespec="seconds"),
+            })
+        except Exception:  # noqa: BLE001 - keep scanning even if one fails
+            pass
+
+    # Sort by urgency (highest first)
+    candidates.sort(key=lambda x: -x["urgency"])
+    return candidates[:limit]
 
 
 if __name__ == "__main__":

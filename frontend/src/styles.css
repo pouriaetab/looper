@@ -70,7 +70,12 @@ input:focus, select:focus {
 /* Layout grid */
 .layout { display: flex; gap: 24px; margin-top: 0; align-items: flex-start; }
 
-.sidebar { flex: 0 0 var(--sw, 400px); width: var(--sw, 400px); }
+.sidebar { flex: 0 0 var(--sw, 400px); width: var(--sw, 400px); container-type: inline-size; }
+
+/* When the sidebar is dragged narrow, drop the acquired date first */
+@container (max-width: 340px) {
+  .hold-date { display: none; }
+}
 
 .content { flex: 1; min-width: 0; }
 

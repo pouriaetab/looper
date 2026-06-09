@@ -81,8 +81,10 @@ def stock(ticker: str):
     cfg = engine.load_config()
     s = next((x for x in cfg.get("stocks", []) if x["ticker"].upper() == ticker.upper()), None)
     if s is None:
-        raise HTTPException(status_code=404, detail=f"{ticker.upper()} is not in config.")
-    result = engine.evaluate(ticker.upper(), engine._stock_cfg(cfg, s))
+        # Not an owned position (e.g. a watchlist symbol) — analyze it as a no-position view.
+        result = engine.evaluate_watch(ticker.upper())
+    else:
+        result = engine.evaluate(ticker.upper(), engine._stock_cfg(cfg, s))
     detail = engine.fetch_detail(ticker.upper())
     sc = fundamentals.build_scorecard(detail.get("ratios"), detail.get("income"))
     stance, reason = fundamentals.fuse_stance(sc["quality_verdict"], sc["value_verdict"],
@@ -159,10 +161,24 @@ def get_candidates(limit: int = 10):
 
 @app.get("/api/watchlist")
 def get_watchlist():
-    """Get the manual watchlist of stocks to monitor."""
+    """Get the manual watchlist, each item enriched with a LIVE signal (price, RSI,
+    headline, reason) — tracked the same way as owned positions and scanner hits."""
     cfg = engine.load_config()
-    watchlist = cfg.get("watchlist", [])
-    return {"watchlist": watchlist}
+    out = []
+    for w in cfg.get("watchlist", []):
+        item = dict(w)
+        try:
+            r = engine.evaluate_watch(w["ticker"])
+            item["signal"] = {
+                "headline": r["headline"], "price": r["price"], "rsi": r["rsi"],
+                "ema_short": r["ema_short"], "ema_long": r["ema_long"],
+                "top_reason": r["top_reason"], "action": r["action"],
+                "counts": r["counts"],
+            }
+        except Exception as e:        # noqa: BLE001
+            item["signal_error"] = str(e)
+        out.append(item)
+    return {"watchlist": out}
 
 
 @app.post("/api/watchlist")

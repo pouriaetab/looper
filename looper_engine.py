@@ -537,17 +537,21 @@ def sell_stock(ticker, shares, price, when=None, reinvest_pct=None):
     })
 
     pos["last_sell_price"] = price
-    removed = remaining <= 1e-9
-    if removed:
-        cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker]
+    closed = remaining <= 1e-9
+    if closed:
+        # Don't delete the stock — flip it to 'cash' so LOOPER keeps watching it for
+        # a re-entry (it moves to the Buy section). Keep entry_price + shares as the
+        # reference for re-entry sizing. To stop tracking it entirely, remove_stock().
+        pos["state"] = "cash"
     else:
         pos["shares"] = remaining
-        stock["position"] = pos
+    stock["position"] = pos
     save_config(cfg)
 
     return {
         "ticker": ticker,
-        "removed": removed,
+        "removed": False,
+        "closed": closed,                       # fully sold -> now in re-entry watch
         "shares_remaining": max(remaining, 0.0),
         "realized_profit": round(realized, 4),
         "net_profit_taken": round(net_taken, 4),
@@ -748,6 +752,23 @@ def _print(result):
                       f"shares ({s['vs_original']:+.2f} vs sold)")
         print(f"    {p['note']}")
     print()
+
+
+def evaluate_watch(ticker):
+    """Evaluate a watchlist symbol you don't own. Treats it as 'cash' (no position)
+    so it gets the same live HOLD / RE-ENTRY WATCH / RE-ENTRY signals the engine
+    gives owned positions and scanner hits."""
+    cfg = load_config()
+    scfg = {
+        "ticker": ticker.upper(),
+        "position": {"state": "cash", "entry_price": None, "shares": 0, "last_sell_price": None},
+        "analyst_target": None,
+        "fundamental_catalyst": False,
+        "next_earnings": None,
+        "reinvest_profit_pct": cfg.get("reinvest_profit_pct", 0.5),
+        "thresholds": cfg["thresholds"],
+    }
+    return evaluate(ticker.upper(), scfg)
 
 
 def scan_candidates(tickers=None, limit=10):

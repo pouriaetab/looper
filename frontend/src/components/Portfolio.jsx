@@ -71,25 +71,30 @@ function CandidateRow({ c, onAddToWatchlist }) {
   )
 }
 
-function WatchlistRow({ w, onRemove }) {
+function WatchlistRow({ w, onRemove, onOpen }) {
+  const sig = w.signal
   return (
     <div className="row">
       <div className="rowmain">
-        <span className="tkr">{w.ticker}</span>
-        <span className="px">${w.price_when_added} | RSI {w.rsi_when_added} at add</span>
-        {w.notes && (
-          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-            {w.notes}
+        {sig ? (
+          <span className="badge" style={{ background: COLORS[sig.headline] || '#1f4e8c' }}>
+            {sig.headline.split(' ')[0]}
           </span>
+        ) : (
+          <span className="badge" style={{ background: '#5a5a5a' }}>{w.signal_error ? 'N/A' : '…'}</span>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: '11px', color: 'var(--text-secondary)' }}>
-          {new Date(w.added_date).toLocaleDateString()}
+        <span className="tkr">{w.ticker}</span>
+        {sig ? (
+          <span className="px">${sig.price.toFixed(2)} | RSI {sig.rsi.toFixed(0)}</span>
+        ) : (
+          <span className="px muted">{w.signal_error ? 'no data' : 'loading…'}</span>
+        )}
+        <span className="reason">{sig ? sig.top_reason : (w.notes || '')}</span>
+        {sig && <button className="open" onClick={() => onOpen(w.ticker)}>Analyze ▸</button>}
+        <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>
+          added {new Date(w.added_date).toLocaleDateString()}
         </span>
-        <button
-          className="link danger"
-          onClick={() => onRemove(w.ticker)}
-          style={{ marginLeft: '8px' }}
-        >
+        <button className="link danger" onClick={() => onRemove(w.ticker)} style={{ marginLeft: '8px' }}>
           remove
         </button>
       </div>
@@ -258,7 +263,7 @@ export default function Portfolio({ data, onOpen }) {
         {wlMsg && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{wlMsg}</p>}
         {watchlist.length > 0 ? (
           watchlist.map(w => (
-            <WatchlistRow key={w.ticker} w={w} onRemove={handleRemoveFromWatchlist} />
+            <WatchlistRow key={w.ticker} w={w} onRemove={handleRemoveFromWatchlist} onOpen={onOpen} />
           ))
         ) : (
           <p className="muted">Nothing on your watchlist yet — add a symbol above, or “+ Watch” one from the scanner.</p>

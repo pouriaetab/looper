@@ -79,7 +79,7 @@ export default function AddHolding({ onChange }) {
       const r = await sellStock(ticker, { shares, price, when: buildWhen(sellForm.date, sellForm.time) })
       setMsg(
         `✓ Sold ${shares} ${ticker} @ $${price}. Realized ${r.realized_profit >= 0 ? '+' : ''}$${r.realized_profit}` +
-        (r.removed ? ' — position closed.' : ` — ${r.shares_remaining} shares left.`)
+        (r.closed ? ' — now in the Buy section, watching for re-entry.' : ` — ${r.shares_remaining} shares left.`)
       )
       setMsgType('success')
       setSellFor(null)
@@ -91,8 +91,13 @@ export default function AddHolding({ onChange }) {
     }
   }
 
-  const remove = async (ticker) => {
-    if (!window.confirm(`Delete ${ticker} without recording a sale?`)) return
+  const remove = async (s) => {
+    const ticker = s.ticker
+    const isCash = s.position?.state === 'cash'
+    const prompt = isCash
+      ? `Stop tracking ${ticker} for re-entry? It will be removed from LOOPER entirely.`
+      : `Delete ${ticker} without recording a sale?`
+    if (!window.confirm(prompt)) return
     try {
       await removeStock(ticker)
       refreshList()
@@ -183,7 +188,7 @@ export default function AddHolding({ onChange }) {
                   {s.position?.entry_price && `@$${s.position.entry_price.toFixed(2)} × ${s.position.shares || 1}`}
                 </span>
                 {s.acquired_date && (
-                  <span style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  <span className="hold-date" style={{ marginLeft: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
                     • {s.acquired_date}
                   </span>
                 )}
@@ -192,10 +197,14 @@ export default function AddHolding({ onChange }) {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <button className="link" onClick={() => (sellFor === s.ticker ? setSellFor(null) : openSell(s))}>
-                  {sellFor === s.ticker ? 'cancel' : 'sell'}
+                {s.position?.state === 'holding' && (
+                  <button className="link" onClick={() => (sellFor === s.ticker ? setSellFor(null) : openSell(s))}>
+                    {sellFor === s.ticker ? 'cancel' : 'sell'}
+                  </button>
+                )}
+                <button className="link danger" onClick={() => remove(s)}>
+                  {s.position?.state === 'cash' ? 'stop' : 'delete'}
                 </button>
-                <button className="link danger" onClick={() => remove(s.ticker)}>delete</button>
               </div>
 
               {sellFor === s.ticker && (

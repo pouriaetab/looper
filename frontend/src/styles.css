@@ -308,3 +308,24 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 }
 .tcard.pos .tvalue { color: var(--success); }
 .tcard.neg .tvalue { color: var(--danger); }
+.tcard { cursor: pointer; transition: all 0.15s ease; }
+.tcard:hover { border-color: var(--text-secondary); box-shadow: var(--shadow-md); }
+.tcard.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(31, 78, 140, 0.18); }
+
+/* Activity detail table under the tally */
+.tdetail {
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+  margin: 0 0 16px; background: var(--surface); box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+.tdetail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ttable { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+.ttable th, .ttable td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.ttable th:first-child, .ttable td:first-child,
+.ttable th:nth-child(2), .ttable td:nth-child(2),
+.ttable th:nth-child(3), .ttable td:nth-child(3) { text-align: left; }
+.ttable thead th { color: var(--text-secondary); font-weight: 600; font-size: 12px; }
+.ttable .hl { background: rgba(31, 78, 140, 0.07); font-weight: 600; }
+.ttable .pos { color: var(--success); }
+.ttable .neg { color: var(--danger); }
+.ttable tfoot td { border-top: 2px solid var(--border); border-bottom: none; }

@@ -7,6 +7,7 @@ secrets.*
 # --- Personal: keep your real holdings + private notes out of the public repo ---
 config.json
 LOOPER_project_brief.md
+improvement_log.txt
 
 # --- Python ---
 venv/

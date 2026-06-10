@@ -33,6 +33,11 @@ function Row({ r, onOpen }) {
           <strong>Signals:</strong> RSI {r.rsi.toFixed(0)} · EMA20 ${r.ema_short.toFixed(2)} · EMA50 ${r.ema_long.toFixed(2)}<br/>
           <strong>Counts:</strong> sell {r.counts.sell}/3 · re-entry {r.counts.reentry}/3 · hold {r.counts.hold}/3<br/>
           <em style={{ color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>{r.action}</em>
+          {r.data_limited && (
+            <span style={{ color: 'var(--warning)', fontSize: '11px', display: 'block', marginTop: '4px' }}>
+              ⚠ limited price history — indicators are approximate.
+            </span>
+          )}
         </div>
       )}
     </div>

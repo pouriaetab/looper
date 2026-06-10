@@ -105,7 +105,8 @@ def fetch_rsi_series(ticker, window, limit=15):
         {"timespan": "day", "window": window, "series_type": "close",
          "order": "desc", "limit": limit},
     )
-    return [v["value"] for v in data["results"]["values"]]  # newest first
+    values = (data.get("results") or {}).get("values") or []
+    return [v["value"] for v in values]  # newest first (empty if not enough history)
 
 
 def fetch_ema(ticker, window):
@@ -114,7 +115,8 @@ def fetch_ema(ticker, window):
         {"timespan": "day", "window": window, "series_type": "close",
          "order": "desc", "limit": 1},
     )
-    return data["results"]["values"][0]["value"]
+    values = (data.get("results") or {}).get("values") or []
+    return values[0]["value"] if values else None   # None if not enough history
 
 
 # --------------------------------------------------------------------------- #
@@ -310,12 +312,22 @@ def evaluate(ticker, cfg):
     target = cfg.get("analyst_target")
 
     bars = fetch_daily_bars(ticker)
-    if len(bars) < 30:
-        raise RuntimeError(f"Only {len(bars)} bars returned for {ticker}; need more history.")
+    if not bars:
+        raise RuntimeError(f"No price data returned for {ticker}.")
     price = bars[-1]["c"]
+
+    # Indicators may be unavailable for very new/short-history tickers. Fall back
+    # gracefully so the position still shows a price and P/L instead of erroring.
     rsi = fetch_rsi_series(ticker, 14)
     ema_s = fetch_ema(ticker, th["ema_short"])
     ema_l = fetch_ema(ticker, th["ema_long"])
+    data_limited = (len(bars) < 30) or (not rsi) or (ema_s is None) or (ema_l is None)
+    if not rsi:
+        rsi = [50.0]                       # neutral RSI when unavailable
+    if ema_s is None:
+        ema_s = price                      # treat price as its own short-term mean
+    if ema_l is None:
+        ema_l = ema_s
 
     sell = [
         _rsi_overbought_turning_down(rsi, th),
@@ -423,6 +435,7 @@ def evaluate(ticker, cfg):
         "analyst_rating": cfg.get("analyst_rating"),
         "analyst_source_url": cfg.get("analyst_source_url"),
         "next_earnings": cfg.get("next_earnings"),
+        "data_limited": data_limited,
         "big_moves": biggest_daily_moves(bars),
         "headline": headline,
         "action": action,
@@ -476,10 +489,30 @@ def add_stock(ticker, entry_price, shares=1, state="holding",
     }
     stock.update({k: v for k, v in extra.items() if v is not None})
 
-    # Was this ticker previously held-then-sold (state "cash")? Then it's a re-entry.
     prior = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker), None)
     prior_state = (prior or {}).get("position", {}).get("state")
-    action = "reentry" if prior_state == "cash" else "buy"
+    action, note = "buy", ""
+
+    if prior is not None and prior_state == "holding" and state == "holding":
+        # Buying MORE of a stock you already hold -> blend into one position at the
+        # weighted-average cost; sum the shares. Every individual buy stays in the
+        # ledger with its own date/price, so the history is never lost.
+        ppos = prior.get("position", {})
+        old_sh = float(ppos.get("shares", 0) or 0)
+        old_entry = float(ppos.get("entry_price", 0) or 0)
+        new_sh = old_sh + float(shares)
+        avg_entry = ((old_sh * old_entry + float(shares) * float(entry_price)) / new_sh
+                     if new_sh else float(entry_price))
+        stock["position"]["shares"] = round(new_sh, 6)
+        stock["position"]["entry_price"] = round(avg_entry, 6)
+        # Keep the OLDEST acquired date as the position's "held since".
+        dates = [d for d in (prior.get("acquired_date"), stock.get("acquired_date")) if d]
+        if dates:
+            stock["acquired_date"] = min(dates)
+        note = f"added {shares} @ {entry_price} to existing {old_sh} (avg cost {avg_entry:.4f})"
+    elif prior_state == "cash":
+        action = "reentry"
+        note = "re-entry after sell"
 
     cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker] + [stock]
     save_config(cfg)
@@ -489,8 +522,8 @@ def add_stock(ticker, entry_price, shares=1, state="holding",
         "timestamp": ts, "date": day, "action": action, "ticker": ticker,
         "shares": float(shares), "price": float(entry_price), "entry_price": float(entry_price),
         "cost_basis": round(float(shares) * float(entry_price), 4),
-        "shares_remaining": float(shares),
-        "note": "re-entry after sell" if action == "reentry" else "",
+        "shares_remaining": stock["position"]["shares"],
+        "note": note,
     })
     return stock
 

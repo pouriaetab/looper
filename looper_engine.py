@@ -37,7 +37,7 @@ LEDGER = DATA_DIR / "ledger.csv"
 LEDGER_FIELDS = [
     "timestamp", "date", "action", "ticker", "shares", "price",
     "entry_price", "proceeds", "cost_basis", "realized_profit",
-    "net_profit_taken", "reentry_reserve", "shares_remaining", "note",
+    "net_profit_taken", "reentry_reserve", "reserve_used", "shares_remaining", "note",
 ]
 
 
@@ -470,7 +470,8 @@ def save_config(cfg):
 
 
 def add_stock(ticker, entry_price, shares=1, state="holding",
-              analyst_target=None, last_sell_price=None, when=None, **extra):
+              analyst_target=None, last_sell_price=None, when=None,
+              from_reserve=False, **extra):
     """Add or replace a holding in config.json (used by the dashboard form + API).
 
     `when` is an optional ISO date/datetime for the ledger entry; defaults to now.
@@ -517,11 +518,20 @@ def add_stock(ticker, entry_price, shares=1, state="holding",
     cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker] + [stock]
     save_config(cfg)
 
+    cost_basis = round(float(shares) * float(entry_price), 4)
+    # A re-entry (buying back what you sold) is funded from the reserve by definition;
+    # any other buy draws from the reserve only if you flag it (from_reserve).
+    drew_from_reserve = bool(from_reserve) or action == "reentry"
+    reserve_used = cost_basis if drew_from_reserve else ""
+    if drew_from_reserve and not note:
+        note = "funded from re-entry reserve"
+
     ts, day = _now_parts(when)
     _append_ledger({
         "timestamp": ts, "date": day, "action": action, "ticker": ticker,
         "shares": float(shares), "price": float(entry_price), "entry_price": float(entry_price),
-        "cost_basis": round(float(shares) * float(entry_price), 4),
+        "cost_basis": cost_basis,
+        "reserve_used": reserve_used,
         "shares_remaining": stock["position"]["shares"],
         "note": note,
     })
@@ -627,15 +637,21 @@ def portfolio_tally():
 
     ledger = read_ledger()
 
-    def _sum(field):
+    def _sum(field, actions=("sell",)):
         total = 0.0
         for row in ledger:
-            if row.get("action") == "sell" and row.get(field):
+            if row.get("action") in actions and row.get(field):
                 try:
                     total += float(row[field])
                 except ValueError:
                     pass
         return round(total, 2)
+
+    # Re-entry reserve is a running pool: sales ADD to it, reserve-funded buys
+    # DRAW from it. Remaining = added − used (can't go below 0).
+    reserve_added = _sum("reentry_reserve")
+    reserve_used = _sum("reserve_used", actions=("buy", "reentry"))
+    reserve_remaining = round(max(reserve_added - reserve_used, 0.0), 2)
 
     return {
         "positions": len(holdings),
@@ -647,7 +663,9 @@ def portfolio_tally():
         "unrealized_total": len(holdings),
         "realized_profit": _sum("realized_profit"),
         "net_profit_taken": _sum("net_profit_taken"),
-        "reentry_reserve": _sum("reentry_reserve"),
+        "reentry_reserve": reserve_remaining,
+        "reserve_added": reserve_added,
+        "reserve_used": reserve_used,
         "reinvest_profit_pct": reinvest,
         "holdings": holdings,
     }

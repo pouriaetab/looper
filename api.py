@@ -47,6 +47,7 @@ class StockIn(BaseModel):
     last_sell_price: Optional[float] = None
     acquired_date: Optional[str] = None  # YYYY-MM-DD format
     when: Optional[str] = None  # optional ISO date/datetime for the ledger; defaults to now
+    from_reserve: bool = False  # fund this buy from the re-entry reserve (draws it down)
 
 
 class StockPatch(BaseModel):
@@ -107,6 +108,7 @@ def add(stock: StockIn):
         return engine.add_stock(stock.ticker, stock.entry_price, stock.shares,
                                 state=stock.state, analyst_target=stock.analyst_target,
                                 last_sell_price=stock.last_sell_price, when=stock.when,
+                                from_reserve=stock.from_reserve,
                                 acquired_date=stock.acquired_date)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

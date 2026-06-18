@@ -10,9 +10,11 @@ const BACKEND_PORT = Number(process.env.BACKEND_PORT) || 8000
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '127.0.0.1',   // bind IPv4 so http://127.0.0.1:PORT is always reachable
     port: FRONTEND_PORT,
+    strictPort: true,    // use exactly this port (fail loudly) instead of drifting
     proxy: {
-      '/api': `http://localhost:${BACKEND_PORT}`,
+      '/api': `http://127.0.0.1:${BACKEND_PORT}`,
     },
   },
 })

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { addStock, removeStock, sellStock, getConfig } from '../api'
 
-const EMPTY = { ticker: '', entry_price: '', shares: '1', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '' }
+const EMPTY = { ticker: '', entry_price: '', shares: '1', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: false }
 
 // Build an ISO timestamp from optional date + time inputs.
 // Both blank -> null (backend uses the current date/time). Otherwise use what's given.
@@ -48,6 +48,7 @@ export default function AddHolding({ onChange }) {
         analyst_target: f.analyst_target ? parseFloat(f.analyst_target) : null,
         acquired_date: f.acquired_date || null,
         when: buildWhen(f.acquired_date, f.acquired_time),
+        from_reserve: f.from_reserve,
       })
       setMsg(`✓ Added ${f.ticker.toUpperCase()} to portfolio.`)
       setMsgType('success')
@@ -158,6 +159,13 @@ export default function AddHolding({ onChange }) {
         <p style={{ margin: '-4px 0 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
           Leave date &amp; time blank to use the current date/time.
         </p>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', margin: '2px 0' }}>
+          <input type="checkbox" checked={f.from_reserve}
+                 onChange={(e) => setF({ ...f, from_reserve: e.target.checked })}
+                 style={{ width: 'auto' }} />
+          Fund this buy from the re-entry reserve (draws it down)
+        </label>
 
         <button type="submit" style={{ marginTop: '4px', fontWeight: '600' }}>Add to Portfolio</button>
 

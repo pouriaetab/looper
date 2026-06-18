@@ -51,17 +51,24 @@ function HoldingsTable({ holdings }) {
 }
 
 function LedgerTable({ rows, field }) {
+  const isReserve = field === 'reentry_reserve'
   const sells = rows.filter(r => r.action === 'sell')
-  const total = sells.reduce((s, r) => s + (num(r[field]) || 0), 0)
+  const colTotal = sells.reduce((s, r) => s + (num(r[field]) || 0), 0)
+  const reserveAdded = sells.reduce((s, r) => s + (num(r.reentry_reserve) || 0), 0)
+  const reserveUsed = rows.reduce((s, r) => s + (num(r.reserve_used) || 0), 0)
+  const reserveRemaining = reserveAdded - reserveUsed
+  const hl = (f) => (field === f ? 'hl' : '')
+
   return (
     <table className="ttable">
       <thead>
         <tr>
           <th>Date</th><th>Action</th><th>Ticker</th><th>Shares</th><th>Price</th><th>Entry</th>
           <th>Proceeds</th><th>Cost</th>
-          <th className={field === 'realized_profit' ? 'hl' : ''}>Realized</th>
-          <th className={field === 'net_profit_taken' ? 'hl' : ''}>Net taken</th>
-          <th className={field === 'reentry_reserve' ? 'hl' : ''}>Reserve</th>
+          <th className={hl('realized_profit')}>Realized</th>
+          <th className={hl('net_profit_taken')}>Net taken</th>
+          <th className={hl('reentry_reserve')}>Reserve +</th>
+          <th className={isReserve ? 'hl' : ''}>Reserve used −</th>
         </tr>
       </thead>
       <tbody>
@@ -71,21 +78,31 @@ function LedgerTable({ rows, field }) {
             <td>{r.shares}</td><td>{money(num(r.price))}</td><td>{money(num(r.entry_price))}</td>
             <td>{r.proceeds ? money(num(r.proceeds)) : '—'}</td>
             <td>{r.cost_basis ? money(num(r.cost_basis)) : '—'}</td>
-            <td className={field === 'realized_profit' ? 'hl' : ''}>{r.realized_profit ? money(num(r.realized_profit)) : '—'}</td>
-            <td className={field === 'net_profit_taken' ? 'hl' : ''}>{r.net_profit_taken ? money(num(r.net_profit_taken)) : '—'}</td>
-            <td className={field === 'reentry_reserve' ? 'hl' : ''}>{r.reentry_reserve ? money(num(r.reentry_reserve)) : '—'}</td>
+            <td className={hl('realized_profit')}>{r.realized_profit ? money(num(r.realized_profit)) : '—'}</td>
+            <td className={hl('net_profit_taken')}>{r.net_profit_taken ? money(num(r.net_profit_taken)) : '—'}</td>
+            <td className={hl('reentry_reserve')}>{r.reentry_reserve ? money(num(r.reentry_reserve)) : '—'}</td>
+            <td className={isReserve ? 'hl' : ''}>{r.reserve_used ? '-' + money(num(r.reserve_used)) : '—'}</td>
           </tr>
         ))}
-        {rows.length === 0 && <tr><td colSpan={11} className="muted">No transactions yet.</td></tr>}
+        {rows.length === 0 && <tr><td colSpan={12} className="muted">No transactions yet.</td></tr>}
       </tbody>
       {sells.length > 0 && (
         <tfoot>
-          <tr>
-            <td colSpan={8} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td>
-            <td className={field === 'realized_profit' ? 'hl' : ''}>{field === 'realized_profit' ? money(total) : ''}</td>
-            <td className={field === 'net_profit_taken' ? 'hl' : ''}>{field === 'net_profit_taken' ? money(total) : ''}</td>
-            <td className={field === 'reentry_reserve' ? 'hl' : ''}>{field === 'reentry_reserve' ? money(total) : ''}</td>
-          </tr>
+          {isReserve ? (
+            <tr>
+              <td colSpan={10} style={{ textAlign: 'right', fontWeight: 600 }}>
+                Added {money(reserveAdded)} − used {money(reserveUsed)} =
+              </td>
+              <td colSpan={2} className="hl" style={{ fontWeight: 700 }}>{money(reserveRemaining)} left</td>
+            </tr>
+          ) : (
+            <tr>
+              <td colSpan={8} style={{ textAlign: 'right', fontWeight: 600 }}>Total</td>
+              <td className={hl('realized_profit')}>{field === 'realized_profit' ? money(colTotal) : ''}</td>
+              <td className={hl('net_profit_taken')}>{field === 'net_profit_taken' ? money(colTotal) : ''}</td>
+              <td colSpan={2}></td>
+            </tr>
+          )}
         </tfoot>
       )}
     </table>
@@ -126,7 +143,7 @@ export default function Tally({ refreshKey }) {
               sub={`after ${Math.round(t.reinvest_profit_pct * 100)}% reinvest`} />
         <Card label="Re-entry reserve" value={money(t.reentry_reserve)}
               active={active === 'Re-entry reserve'} onClick={() => toggle('Re-entry reserve')}
-              sub="cost + reinvested profit" />
+              sub={t.reserve_used ? `${money(t.reserve_added)} added · ${money(t.reserve_used)} used` : 'available to redeploy'} />
       </div>
 
       {active && (

@@ -77,6 +77,26 @@ def get_config():
     return {"stocks": engine.load_config().get("stocks", [])}
 
 
+class SettingsIn(BaseModel):
+    timespan: str   # 'day' (swing) or 'week' (long-term)
+
+
+@app.get("/api/settings")
+def get_settings():
+    th = engine.load_config().get("thresholds", {})
+    return {"timespan": th.get("timespan", "day")}
+
+
+@app.post("/api/settings")
+def set_settings(body: SettingsIn):
+    if body.timespan not in ("day", "week"):
+        raise HTTPException(status_code=400, detail="timespan must be 'day' or 'week'")
+    cfg = engine.load_config()
+    cfg.setdefault("thresholds", {})["timespan"] = body.timespan
+    engine.save_config(cfg)
+    return {"timespan": body.timespan}
+
+
 @app.get("/api/stock/{ticker}")
 def stock(ticker: str):
     cfg = engine.load_config()

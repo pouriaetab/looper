@@ -83,12 +83,15 @@ def _get(path, params=None):
     return resp.json()
 
 
-def fetch_daily_bars(ticker, days=160):
-    """Daily OHLCV bars for roughly the last `days` calendar days."""
+def fetch_daily_bars(ticker, days=None, timespan="day"):
+    """OHLCV bars for the given timespan ('day' or 'week').
+    Weekly bars give a slower, longer-term view (RSI/EMA span weeks–months)."""
+    if days is None:
+        days = 1100 if timespan == "week" else 160   # weekly needs ~3y for EMA50
     end = dt.date.today()
     start = end - dt.timedelta(days=days)
     data = _get(
-        f"/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}",
+        f"/v2/aggs/ticker/{ticker}/range/1/{timespan}/{start}/{end}",
         {"adjusted": "true", "sort": "asc", "limit": 50000},
     )
     bars = data.get("results", []) or []
@@ -99,20 +102,20 @@ def fetch_daily_bars(ticker, days=160):
     ]
 
 
-def fetch_rsi_series(ticker, window, limit=15):
+def fetch_rsi_series(ticker, window, limit=15, timespan="day"):
     data = _get(
         f"/v1/indicators/rsi/{ticker}",
-        {"timespan": "day", "window": window, "series_type": "close",
+        {"timespan": timespan, "window": window, "series_type": "close",
          "order": "desc", "limit": limit},
     )
     values = (data.get("results") or {}).get("values") or []
     return [v["value"] for v in values]  # newest first (empty if not enough history)
 
 
-def fetch_ema(ticker, window):
+def fetch_ema(ticker, window, timespan="day"):
     data = _get(
         f"/v1/indicators/ema/{ticker}",
-        {"timespan": "day", "window": window, "series_type": "close",
+        {"timespan": timespan, "window": window, "series_type": "close",
          "order": "desc", "limit": 1},
     )
     values = (data.get("results") or {}).get("values") or []
@@ -310,17 +313,18 @@ def _far_above_targets(price, target, th):
 def evaluate(ticker, cfg):
     th = cfg["thresholds"]
     target = cfg.get("analyst_target")
+    tspan = th.get("timespan", "day")            # 'day' (swing) or 'week' (long-term)
 
-    bars = fetch_daily_bars(ticker)
+    bars = fetch_daily_bars(ticker, timespan=tspan)
     if not bars:
         raise RuntimeError(f"No price data returned for {ticker}.")
     price = bars[-1]["c"]
 
     # Indicators may be unavailable for very new/short-history tickers. Fall back
     # gracefully so the position still shows a price and P/L instead of erroring.
-    rsi = fetch_rsi_series(ticker, 14)
-    ema_s = fetch_ema(ticker, th["ema_short"])
-    ema_l = fetch_ema(ticker, th["ema_long"])
+    rsi = fetch_rsi_series(ticker, 14, timespan=tspan)
+    ema_s = fetch_ema(ticker, th["ema_short"], timespan=tspan)
+    ema_l = fetch_ema(ticker, th["ema_long"], timespan=tspan)
     data_limited = (len(bars) < 30) or (not rsi) or (ema_s is None) or (ema_l is None)
     if not rsi:
         rsi = [50.0]                       # neutral RSI when unavailable
@@ -435,6 +439,7 @@ def evaluate(ticker, cfg):
         "analyst_rating": cfg.get("analyst_rating"),
         "analyst_source_url": cfg.get("analyst_source_url"),
         "next_earnings": cfg.get("next_earnings"),
+        "timespan": tspan,
         "data_limited": data_limited,
         "big_moves": biggest_daily_moves(bars),
         "headline": headline,

@@ -32,6 +32,14 @@ export const sellStock = (ticker, body) =>
 export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
 
+export const getSettings = () => fetch('/api/settings').then(j)
+export const setTimespan = (timespan) =>
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ timespan }),
+  }).then(j)
+
 // Phase 4: Candidates & Watchlist
 export const getCandidates = (limit = 10) => fetch(`/api/candidates?limit=${limit}`).then(j)
 

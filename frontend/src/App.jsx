@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getPortfolio } from './api'
+import { getPortfolio, getSettings, setTimespan } from './api'
 import Portfolio from './components/Portfolio'
 import StockDetail from './components/StockDetail'
 import AddHolding from './components/AddHolding'
@@ -11,6 +11,7 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [horizon, setHorizon] = useState('day')
   const [sidebarWidth, setSidebarWidth] = useState(
     () => Number(localStorage.getItem('looperSidebarW')) || 400
   )
@@ -47,6 +48,17 @@ export default function App() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { getSettings().then(s => setHorizon(s.timespan || 'day')).catch(() => {}) }, [])
+
+  const changeHorizon = async (tspan) => {
+    setHorizon(tspan)
+    try {
+      await setTimespan(tspan)
+      await load()
+    } catch (e) {
+      setErr(e.message)
+    }
+  }
 
   return (
     <div className="app">
@@ -54,6 +66,13 @@ export default function App() {
         <button className="toggle" onClick={() => setShowSidebar(v => !v)} aria-label="Toggle holdings panel">☰</button>
         <h1>🔁 LOOPER</h1>
         <span className="tag">portfolio of active loops</span>
+        <label className="horizon" title="Swing = daily bars (faster signals). Long-term = weekly bars (slower, weeks–months view).">
+          Horizon:&nbsp;
+          <select value={horizon} onChange={(e) => changeHorizon(e.target.value)}>
+            <option value="day">Swing (daily)</option>
+            <option value="week">Long-term (weekly)</option>
+          </select>
+        </label>
         <button className="refresh" onClick={load} disabled={loading}>
           {loading ? 'Refreshing…' : '↻ Refresh'}
         </button>

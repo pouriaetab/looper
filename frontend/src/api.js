@@ -33,11 +33,11 @@ export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
 
 export const getSettings = () => fetch('/api/settings').then(j)
-export const setTimespan = (timespan) =>
+export const setHorizon = (horizon) =>
   fetch('/api/settings', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ timespan }),
+    body: JSON.stringify({ horizon }),
   }).then(j)
 
 // Phase 4: Candidates & Watchlist

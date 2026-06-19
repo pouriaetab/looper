@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { getPortfolio, getSettings, setTimespan } from './api'
+import { getPortfolio, getSettings, setHorizon as apiSetHorizon } from './api'
 import Portfolio from './components/Portfolio'
 import StockDetail from './components/StockDetail'
 import AddHolding from './components/AddHolding'
@@ -11,7 +11,8 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [detail, setDetail] = useState(null)
   const [showSidebar, setShowSidebar] = useState(true)
-  const [horizon, setHorizon] = useState('day')
+  const [horizon, setHorizon] = useState('swing')
+  const [horizons, setHorizons] = useState([])
   const [sidebarWidth, setSidebarWidth] = useState(
     () => Number(localStorage.getItem('looperSidebarW')) || 400
   )
@@ -48,12 +49,17 @@ export default function App() {
   }, [])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { getSettings().then(s => setHorizon(s.timespan || 'day')).catch(() => {}) }, [])
+  useEffect(() => {
+    getSettings().then(s => {
+      setHorizon(s.horizon || 'swing')
+      setHorizons(s.horizons || [])
+    }).catch(() => {})
+  }, [])
 
-  const changeHorizon = async (tspan) => {
-    setHorizon(tspan)
+  const changeHorizon = async (h) => {
+    setHorizon(h)
     try {
-      await setTimespan(tspan)
+      await apiSetHorizon(h)
       await load()
     } catch (e) {
       setErr(e.message)
@@ -66,11 +72,12 @@ export default function App() {
         <button className="toggle" onClick={() => setShowSidebar(v => !v)} aria-label="Toggle holdings panel">☰</button>
         <h1>🔁 LOOPER</h1>
         <span className="tag">portfolio of active loops</span>
-        <label className="horizon" title="Swing = daily bars (faster signals). Long-term = weekly bars (slower, weeks–months view).">
+        <label className="horizon" title="How long-term the signals are. Bigger = slower, only moves on the multi-period trend.">
           Horizon:&nbsp;
           <select value={horizon} onChange={(e) => changeHorizon(e.target.value)}>
-            <option value="day">Swing (daily)</option>
-            <option value="week">Long-term (weekly)</option>
+            {horizons.map(h => (
+              <option key={h.value} value={h.value}>{h.label} · {h.approx}</option>
+            ))}
           </select>
         </label>
         <button className="refresh" onClick={load} disabled={loading}>

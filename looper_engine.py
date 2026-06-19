@@ -40,6 +40,19 @@ LEDGER_FIELDS = [
     "net_profit_taken", "reentry_reserve", "reserve_used", "shares_remaining", "note",
 ]
 
+# Horizon presets — each bundles the bar timespan + EMA windows. Bigger = slower,
+# longer-term signals (they only move when the multi-period trend actually shifts).
+HORIZONS = {
+    "swing":    {"timespan": "day",   "ema_short": 20, "ema_long": 50,
+                 "label": "Swing (daily)",            "approx": "days–2 weeks"},
+    "position": {"timespan": "day",   "ema_short": 50, "ema_long": 100,
+                 "label": "Position (daily, longer)", "approx": "~2–4 weeks"},
+    "weekly":   {"timespan": "week",  "ema_short": 20, "ema_long": 50,
+                 "label": "Long-term (weekly)",       "approx": "months"},
+    "monthly":  {"timespan": "month", "ema_short": 12, "ema_long": 24,
+                 "label": "Very long-term (monthly)", "approx": "1–2+ years"},
+}
+
 
 def _append_ledger(row: dict) -> None:
     DATA_DIR.mkdir(exist_ok=True)
@@ -87,7 +100,7 @@ def fetch_daily_bars(ticker, days=None, timespan="day"):
     """OHLCV bars for the given timespan ('day' or 'week').
     Weekly bars give a slower, longer-term view (RSI/EMA span weeks–months)."""
     if days is None:
-        days = 1100 if timespan == "week" else 160   # weekly needs ~3y for EMA50
+        days = {"week": 1100, "month": 4000}.get(timespan, 160)   # enough history per timespan
     end = dt.date.today()
     start = end - dt.timedelta(days=days)
     data = _get(
@@ -310,10 +323,20 @@ def _far_above_targets(price, target, th):
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
+def _resolve_horizon(th):
+    """Resolve the horizon preset -> (timespan, thresholds with the right EMA windows).
+    Falls back to the legacy 'timespan' key, then to swing."""
+    name = th.get("horizon")
+    if not name:
+        name = "weekly" if th.get("timespan") == "week" else "swing"
+    h = HORIZONS.get(name, HORIZONS["swing"])
+    merged = {**th, "ema_short": h["ema_short"], "ema_long": h["ema_long"]}
+    return name, h["timespan"], merged
+
+
 def evaluate(ticker, cfg):
-    th = cfg["thresholds"]
     target = cfg.get("analyst_target")
-    tspan = th.get("timespan", "day")            # 'day' (swing) or 'week' (long-term)
+    horizon, tspan, th = _resolve_horizon(cfg["thresholds"])
 
     bars = fetch_daily_bars(ticker, timespan=tspan)
     if not bars:
@@ -440,6 +463,7 @@ def evaluate(ticker, cfg):
         "analyst_source_url": cfg.get("analyst_source_url"),
         "next_earnings": cfg.get("next_earnings"),
         "timespan": tspan,
+        "horizon": horizon,
         "data_limited": data_limited,
         "big_moves": biggest_daily_moves(bars),
         "headline": headline,

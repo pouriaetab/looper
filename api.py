@@ -78,23 +78,34 @@ def get_config():
 
 
 class SettingsIn(BaseModel):
-    timespan: str   # 'day' (swing) or 'week' (long-term)
+    horizon: str   # one of engine.HORIZONS (swing / position / weekly / monthly)
+
+
+def _current_horizon(th):
+    return th.get("horizon") or ("weekly" if th.get("timespan") == "week" else "swing")
 
 
 @app.get("/api/settings")
 def get_settings():
     th = engine.load_config().get("thresholds", {})
-    return {"timespan": th.get("timespan", "day")}
+    return {
+        "horizon": _current_horizon(th),
+        "horizons": [{"value": k, "label": v["label"], "approx": v["approx"]}
+                     for k, v in engine.HORIZONS.items()],
+    }
 
 
 @app.post("/api/settings")
 def set_settings(body: SettingsIn):
-    if body.timespan not in ("day", "week"):
-        raise HTTPException(status_code=400, detail="timespan must be 'day' or 'week'")
+    if body.horizon not in engine.HORIZONS:
+        raise HTTPException(status_code=400,
+                            detail=f"horizon must be one of {list(engine.HORIZONS)}")
     cfg = engine.load_config()
-    cfg.setdefault("thresholds", {})["timespan"] = body.timespan
+    th = cfg.setdefault("thresholds", {})
+    th["horizon"] = body.horizon
+    th["timespan"] = engine.HORIZONS[body.horizon]["timespan"]   # keep legacy key in sync
     engine.save_config(cfg)
-    return {"timespan": body.timespan}
+    return {"horizon": body.horizon}
 
 
 @app.get("/api/stock/{ticker}")

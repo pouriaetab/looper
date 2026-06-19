@@ -52,6 +52,7 @@
     "volume_window_days": 20,
     "target_breakout_buffer_pct": 0.1,
     "swing_low_lookback": 45,
-    "timespan": "day"
+    "timespan": "day",
+    "horizon": "swing"
   }
 }

@@ -868,24 +868,29 @@ def scan_candidates(tickers=None, limit=10):
             "TSLA", "WDAY", "ZM", "BRKR", "ACGL", "AEP", "BDX", "JNJ"
         ]
 
+    # Scan on the same horizon (daily/weekly/monthly) the rest of LOOPER is using,
+    # so the scanner's oversold/overbought reads match the portfolio + watchlist.
+    cfg = load_config()
+    _, tspan, hth = _resolve_horizon(cfg.get("thresholds", {}))
+    es, el = hth["ema_short"], hth["ema_long"]
+
     candidates = []
     for ticker in tickers:
         try:
-            # Fetch current RSI and price
-            rsi_data = fetch_rsi_series(ticker, 14, limit=1)
+            # Fetch current RSI and price on the active horizon
+            rsi_data = fetch_rsi_series(ticker, 14, limit=1, timespan=tspan)
             rsi = rsi_data[0] if rsi_data else None
 
             if rsi is None:
                 continue
 
-            # Get current price via EMA (as proxy) or bars
-            bars = fetch_daily_bars(ticker, days=5)
+            bars = fetch_daily_bars(ticker, timespan=tspan)
             if not bars:
                 continue
 
             price = bars[-1]["c"]  # last close
-            ema_20 = fetch_ema(ticker, 20)
-            ema_50 = fetch_ema(ticker, 50)
+            ema_20 = fetch_ema(ticker, es, timespan=tspan)
+            ema_50 = fetch_ema(ticker, el, timespan=tspan)
 
             # Determine if oversold or overbought
             if rsi < 35:
@@ -897,13 +902,9 @@ def scan_candidates(tickers=None, limit=10):
             else:
                 continue  # skip neutral RSI
 
-            # Load analyst target if we have config
-            try:
-                cfg = load_config()
-                stock_cfg = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker.upper()), None)
-                analyst_target = stock_cfg.get("analyst_target") if stock_cfg else None
-            except Exception:
-                analyst_target = None
+            # Analyst target if this ticker is one of your tracked stocks
+            stock_cfg = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker.upper()), None)
+            analyst_target = stock_cfg.get("analyst_target") if stock_cfg else None
 
             candidates.append({
                 "ticker": ticker,

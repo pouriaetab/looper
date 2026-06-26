@@ -108,26 +108,33 @@ function WatchlistRow({ w, onRemove, onOpen }) {
 }
 
 export default function Portfolio({ data, onOpen }) {
-  const [candidates, setCandidates] = useState([])
+  const [candidates, setCandidates] = useState(null)   // null = not loaded yet
   const [watchlist, setWatchlist] = useState([])
   const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [dismissedErrors, setDismissedErrors] = useState(new Set())
   const [manualTicker, setManualTicker] = useState('')
   const [wlMsg, setWlMsg] = useState(null)
+  const [showScanner, setShowScanner] = useState(false)
+  const [showWatch, setShowWatch] = useState(false)
 
   const results = data.results || []
   const errors = (data.errors || []).filter(e => !dismissedErrors.has(e.ticker))
   const sells = results.filter(r => r.side === 'sell').sort((a, b) => b.urgency - a.urgency)
   const buys = results.filter(r => r.side === 'buy').sort((a, b) => b.urgency - a.urgency)
 
-  // Load candidates and watchlist on mount
+  // Watchlist is light — load it on mount. Scanner is heavy (scans ~32 tickers),
+  // so only run it the first time you open that section.
   useEffect(() => {
-    setLoadingCandidates(true)
-    Promise.all([
-      getCandidates(8).then(d => setCandidates(d.candidates || [])).catch(() => setCandidates([])),
-      getWatchlist().then(d => setWatchlist(d.watchlist || [])).catch(() => setWatchlist([]))
-    ]).finally(() => setLoadingCandidates(false))
+    getWatchlist().then(d => setWatchlist(d.watchlist || [])).catch(() => setWatchlist([]))
   }, [])
+
+  useEffect(() => {
+    if (showScanner && candidates === null && !loadingCandidates) {
+      setLoadingCandidates(true)
+      getCandidates(8).then(d => setCandidates(d.candidates || []))
+        .catch(() => setCandidates([])).finally(() => setLoadingCandidates(false))
+    }
+  }, [showScanner, candidates, loadingCandidates])
 
   const handleAddToWatchlist = async (ticker) => {
     try {
@@ -231,47 +238,53 @@ export default function Portfolio({ data, onOpen }) {
         </section>
       </div>
 
-      {/* Phase 4: Candidate Scanner — always shown */}
-      <section style={{ marginTop: '24px', padding: '16px', background: 'var(--surface-alt)', borderRadius: '10px' }}>
-        <h2 style={{ margin: '0 0 4px 0', borderTop: 'none', paddingTop: 0 }}>
-          🔍 Candidate Scanner
-        </h2>
-        <p className="sub">Quality stocks that are oversold (re-entry) or overbought (take-profit) right now</p>
-        {loadingCandidates ? (
-          <p className="muted">Scanning the universe… (this takes a moment)</p>
-        ) : candidates.length > 0 ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
-            {candidates.map(c => (
-              <CandidateRow key={c.ticker} c={c} onAddToWatchlist={handleAddToWatchlist} />
-            ))}
+      {/* Phase 4: Candidate Scanner — collapsible to keep the page short */}
+      <section className="collapse">
+        <button className="secthead" onClick={() => setShowScanner(v => !v)}>
+          <span>🔍 Candidate Scanner</span>
+          <span className="chev">{showScanner ? '▾' : '▸'}</span>
+        </button>
+        {showScanner && (
+          <div className="sectbody">
+            <p className="sub">Quality stocks oversold (re-entry) or overbought (take-profit), on your current horizon</p>
+            {loadingCandidates ? (
+              <p className="muted">Scanning the universe… (this takes a moment)</p>
+            ) : (candidates && candidates.length > 0) ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
+                {candidates.map(c => (
+                  <CandidateRow key={c.ticker} c={c} onAddToWatchlist={handleAddToWatchlist} />
+                ))}
+              </div>
+            ) : (
+              <p className="muted">No oversold or overbought names in the scan right now.</p>
+            )}
           </div>
-        ) : (
-          <p className="muted">No oversold or overbought names in the scan right now — check back later.</p>
         )}
       </section>
 
-      {/* Manual Watchlist — always shown, with a manual add box */}
-      <section style={{ marginTop: '24px', padding: '16px', background: 'var(--surface-alt)', borderRadius: '10px', border: '1px solid var(--border)' }}>
-        <h2 style={{ margin: '0 0 4px 0', borderTop: 'none', paddingTop: 0 }}>
-          📋 Your Watchlist
-        </h2>
-        <p className="sub">Symbols you're monitoring for a buy (not positions you own)</p>
-        <form onSubmit={addManual} style={{ display: 'flex', gap: '8px', margin: '0 0 12px', maxWidth: '380px' }}>
-          <input
-            placeholder="Add a symbol, e.g. NVDA"
-            value={manualTicker}
-            onChange={e => setManualTicker(e.target.value)}
-            style={{ flex: 1 }}
-          />
-          <button type="submit">+ Add</button>
-        </form>
-        {wlMsg && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{wlMsg}</p>}
-        {watchlist.length > 0 ? (
-          watchlist.map(w => (
-            <WatchlistRow key={w.ticker} w={w} onRemove={handleRemoveFromWatchlist} onOpen={onOpen} />
-          ))
-        ) : (
-          <p className="muted">Nothing on your watchlist yet — add a symbol above, or “+ Watch” one from the scanner.</p>
+      {/* Manual Watchlist — collapsible */}
+      <section className="collapse">
+        <button className="secthead" onClick={() => setShowWatch(v => !v)}>
+          <span>📋 Your Watchlist {watchlist.length > 0 && <span className="count">({watchlist.length})</span>}</span>
+          <span className="chev">{showWatch ? '▾' : '▸'}</span>
+        </button>
+        {showWatch && (
+          <div className="sectbody">
+            <p className="sub">Symbols you're monitoring for a buy (not positions you own) — live signals on your horizon</p>
+            <form onSubmit={addManual} style={{ display: 'flex', gap: '8px', margin: '0 0 12px', maxWidth: '380px' }}>
+              <input placeholder="Add a symbol, e.g. NVDA" value={manualTicker}
+                     onChange={e => setManualTicker(e.target.value)} style={{ flex: 1 }} />
+              <button type="submit">+ Add</button>
+            </form>
+            {wlMsg && <p className="muted small" style={{ margin: '-4px 0 10px' }}>{wlMsg}</p>}
+            {watchlist.length > 0 ? (
+              watchlist.map(w => (
+                <WatchlistRow key={w.ticker} w={w} onRemove={handleRemoveFromWatchlist} onOpen={onOpen} />
+              ))
+            ) : (
+              <p className="muted">Nothing on your watchlist yet — add a symbol above, or “+ Watch” one from the scanner.</p>
+            )}
+          </div>
         )}
       </section>
     </div>

@@ -69,7 +69,11 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="toggle" onClick={() => setShowSidebar(v => !v)} aria-label="Toggle holdings panel">☰</button>
+        <button className="toggle" onClick={() => setShowSidebar(v => !v)}
+                aria-label={showSidebar ? 'Hide holdings panel' : 'Show holdings panel'}
+                title={showSidebar ? 'Hide holdings panel' : 'Show holdings panel'}>
+          {showSidebar ? '«' : '»'}
+        </button>
         <h1>🔁 LOOPER</h1>
         <span className="tag">portfolio of active loops</span>
         <label className="horizon" title="How long-term the signals are. Bigger = slower, only moves on the multi-period trend.">

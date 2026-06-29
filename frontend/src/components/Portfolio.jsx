@@ -2,11 +2,11 @@ import React, { useState, useEffect } from 'react'
 import { getCandidates, getWatchlist, addToWatchlist, removeFromWatchlist } from '../api'
 
 const COLORS = {
-  'SELL SIGNAL': '#b00020', 'WATCH': '#c77700', 'RE-ENTRY ZONE': '#0b6e3b',
-  'RE-ENTRY WATCH': '#c77700', 'HOLD': '#1f4e8c', 'WAIT': '#5a5a5a',
+  'SELL SIGNAL': '#C13B2B', 'WATCH': '#B07515', 'RE-ENTRY ZONE': '#1B7F49',
+  'RE-ENTRY WATCH': '#B07515', 'HOLD': '#C8643F', 'WAIT': '#8C8A82',
 }
 
-function Row({ r, onOpen, open, onToggle }) {
+function Row({ r, onOpen, open, onToggle, onHide }) {
   const gain = r.position?.entry_price ? (r.price / r.position.entry_price - 1) * 100 : null
   const urgencyLabel = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
 
@@ -15,7 +15,7 @@ function Row({ r, onOpen, open, onToggle }) {
       <div className="rowmain" onClick={onToggle} style={{ cursor: 'pointer' }}>
         <span className="chev">{open ? '▾' : '▸'}</span>
         <span style={{ fontSize: '15px' }}>{urgencyLabel}</span>
-        <span className="badge" style={{ background: COLORS[r.headline] || '#1f4e8c' }}>
+        <span className="badge" style={{ background: COLORS[r.headline] || '#C8643F' }}>
           {r.headline.split(' ')[0]}
         </span>
         <span className="tkr">{r.ticker}</span>
@@ -28,6 +28,8 @@ function Row({ r, onOpen, open, onToggle }) {
             Analyze ▸
           </button>
         )}
+        <button className="rowx" title={`Hide ${r.ticker}`}
+                onClick={(e) => { e.stopPropagation(); onHide(r.ticker) }}>✕</button>
       </div>
       {open && (
         <div className="rowdetail">
@@ -52,7 +54,7 @@ function CandidateRow({ c, onAddToWatchlist }) {
     <div className="row">
       <div className="rowmain">
         <span className="badge" style={{
-          background: c.category.includes('oversold') ? '#0b6e3b' : '#c77700'
+          background: c.category.includes('oversold') ? '#1B7F49' : '#B07515'
         }}>
           {c.category.toUpperCase()}
         </span>
@@ -83,11 +85,11 @@ function WatchlistRow({ w, onRemove, onOpen }) {
     <div className="row">
       <div className="rowmain">
         {sig ? (
-          <span className="badge" style={{ background: COLORS[sig.headline] || '#1f4e8c' }}>
+          <span className="badge" style={{ background: COLORS[sig.headline] || '#C8643F' }}>
             {sig.headline.split(' ')[0]}
           </span>
         ) : (
-          <span className="badge" style={{ background: '#5a5a5a' }}>{w.signal_error ? 'N/A' : '…'}</span>
+          <span className="badge" style={{ background: '#8C8A82' }}>{w.signal_error ? 'N/A' : '…'}</span>
         )}
         <span className="tkr">{w.ticker}</span>
         {sig ? (
@@ -118,6 +120,9 @@ export default function Portfolio({ data, onOpen }) {
   const [showScanner, setShowScanner] = useState(false)
   const [showWatch, setShowWatch] = useState(false)
   const [expanded, setExpanded] = useState(() => new Set())   // expanded row tickers
+  const [hidden, setHidden] = useState(
+    () => new Set(JSON.parse(localStorage.getItem('looperHidden') || '[]'))
+  )
 
   const toggleRow = (t) => setExpanded(prev => {
     const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n
@@ -126,11 +131,15 @@ export default function Portfolio({ data, onOpen }) {
   const collapseAll = (list) => setExpanded(prev => {
     const n = new Set(prev); list.forEach(r => n.delete(r.ticker)); return n
   })
+  const persistHidden = (s) => localStorage.setItem('looperHidden', JSON.stringify([...s]))
+  const hideRow = (t) => setHidden(prev => { const n = new Set(prev); n.add(t); persistHidden(n); return n })
+  const unhide = (t) => setHidden(prev => { const n = new Set(prev); n.delete(t); persistHidden(n); return n })
 
   const results = data.results || []
   const errors = (data.errors || []).filter(e => !dismissedErrors.has(e.ticker))
-  const sells = results.filter(r => r.side === 'sell').sort((a, b) => b.urgency - a.urgency)
-  const buys = results.filter(r => r.side === 'buy').sort((a, b) => b.urgency - a.urgency)
+  const sells = results.filter(r => r.side === 'sell' && !hidden.has(r.ticker)).sort((a, b) => b.urgency - a.urgency)
+  const buys = results.filter(r => r.side === 'buy' && !hidden.has(r.ticker)).sort((a, b) => b.urgency - a.urgency)
+  const hiddenList = [...hidden]
 
   // Watchlist is light — load it on mount. Scanner is heavy (scans ~32 tickers),
   // so only run it the first time you open that section.
@@ -227,7 +236,7 @@ export default function Portfolio({ data, onOpen }) {
           </p>
           {sells.length > 0 ? (
             sells.map(r => (
-              <Row key={r.ticker} r={r} onOpen={onOpen}
+              <Row key={r.ticker} r={r} onOpen={onOpen} onHide={hideRow}
                    open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
             ))
           ) : (
@@ -254,7 +263,7 @@ export default function Portfolio({ data, onOpen }) {
           </p>
           {buys.length > 0 ? (
             buys.map(r => (
-              <Row key={r.ticker} r={r} onOpen={onOpen}
+              <Row key={r.ticker} r={r} onOpen={onOpen} onHide={hideRow}
                    open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
             ))
           ) : (
@@ -265,6 +274,18 @@ export default function Portfolio({ data, onOpen }) {
           )}
         </section>
       </div>
+
+      {/* Hidden stocks — click a chip to bring it back */}
+      {hiddenList.length > 0 && (
+        <div className="hidden-strip">
+          <span className="muted small">Hidden ({hiddenList.length}):</span>
+          {hiddenList.map(t => (
+            <button key={t} className="hidden-chip" title={`Restore ${t}`} onClick={() => unhide(t)}>
+              {t} ↩
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Phase 4: Candidate Scanner — collapsible to keep the page short */}
       <section className="collapse">

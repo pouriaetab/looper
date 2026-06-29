@@ -2,16 +2,16 @@ import React, { useState, useEffect } from 'react'
 import { getStock } from '../api'
 
 const STANCE = {
-  'Accumulate': '#0b6e3b', 'Accumulate / core hold': '#0b6e3b',
-  'Hold': '#1f4e8c', 'Hold / wait': '#1f4e8c',
-  'Trim / take profit': '#c77700', 'Reduce': '#c77700', 'Exit / avoid': '#b00020',
+  'Accumulate': '#1B7F49', 'Accumulate / core hold': '#1B7F49',
+  'Hold': '#C8643F', 'Hold / wait': '#C8643F',
+  'Trim / take profit': '#B07515', 'Reduce': '#B07515', 'Exit / avoid': '#C13B2B',
 }
 const CHIP = {
-  'High quality': '#0b6e3b', 'Solid': '#0b6e3b', 'Average': '#c77700',
-  'Weak': '#b00020', 'Deteriorating': '#b00020',
-  'Cheap': '#0b6e3b', 'Fair': '#1f4e8c', 'Rich': '#c77700', 'Expensive': '#b00020',
+  'High quality': '#1B7F49', 'Solid': '#1B7F49', 'Average': '#B07515',
+  'Weak': '#C13B2B', 'Deteriorating': '#C13B2B',
+  'Cheap': '#1B7F49', 'Fair': '#C8643F', 'Rich': '#B07515', 'Expensive': '#C13B2B',
 }
-const scoreColor = (s) => s == null ? '#5a5a5a' : s >= 0.7 ? '#0b6e3b' : s >= 0.4 ? '#c77700' : '#b00020'
+const scoreColor = (s) => s == null ? '#8C8A82' : s >= 0.7 ? '#1B7F49' : s >= 0.4 ? '#B07515' : '#C13B2B'
 
 export default function StockDetail({ ticker, onBack }) {
   const [d, setD] = useState(null)
@@ -32,15 +32,15 @@ export default function StockDetail({ ticker, onBack }) {
       {back}
       <h1>{r.ticker}</h1>
 
-      <div className="stance" style={{ background: STANCE[st.label] || '#1f4e8c' }}>
+      <div className="stance" style={{ background: STANCE[st.label] || '#C8643F' }}>
         <strong>{st.label}</strong>
         <div className="reason">{st.reason}</div>
       </div>
 
       <p className="verdicts">
-        Quality <span className="chip" style={{ background: CHIP[sc.quality_verdict] || '#5a5a5a' }}>{sc.quality_verdict}</span>
-        Valuation <span className="chip" style={{ background: CHIP[sc.value_verdict] || '#5a5a5a' }}>{sc.value_verdict}</span>
-        Timing <span className="chip" style={{ background: '#1f4e8c' }}>{r.headline}</span>
+        Quality <span className="chip" style={{ background: CHIP[sc.quality_verdict] || '#8C8A82' }}>{sc.quality_verdict}</span>
+        Valuation <span className="chip" style={{ background: CHIP[sc.value_verdict] || '#8C8A82' }}>{sc.value_verdict}</span>
+        Timing <span className="chip" style={{ background: '#C8643F' }}>{r.headline}</span>
       </p>
 
       <div className="metrics">

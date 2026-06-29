@@ -523,6 +523,13 @@ def add_stock(ticker, entry_price, shares=1, state="holding",
     prior_state = (prior or {}).get("position", {}).get("state")
     action, note = "buy", ""
 
+    # Marking an existing HOLDING as "cash" via the form means you SOLD it — record a
+    # real sale (realized P/L + reserve) at the entered price, not a buy.
+    if prior is not None and prior_state == "holding" and state == "cash":
+        held = float(prior.get("position", {}).get("shares", 0) or 0)
+        if held > 0:
+            return sell_stock(ticker, held, float(entry_price), when=when)
+
     if prior is not None and prior_state == "holding" and state == "holding":
         # Buying MORE of a stock you already hold -> blend into one position at the
         # weighted-average cost; sum the shares. Every individual buy stays in the

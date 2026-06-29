@@ -6,7 +6,23 @@ const COLORS = {
   'RE-ENTRY WATCH': '#B07515', 'HOLD': '#C8643F', 'WAIT': '#8C8A82',
 }
 
-function Row({ r, onOpen, open, onToggle, onHide }) {
+function VisBar({ list, hidden, onToggle, onShowAll, onHideAll }) {
+  return (
+    <div className="visbar">
+      <button className="link" onClick={onShowAll} title="Show all boxes">👁 show all</button>
+      <span className="vsep">·</span>
+      <button className="link" onClick={onHideAll} title="Hide all boxes">🙈 hide all</button>
+      {list.map(r => (
+        <button key={r.ticker}
+          className={`vchip ${hidden.has(r.ticker) ? 'off' : ''}`}
+          title={hidden.has(r.ticker) ? `Show ${r.ticker}` : `Hide ${r.ticker}`}
+          onClick={() => onToggle(r.ticker)}>{r.ticker}</button>
+      ))}
+    </div>
+  )
+}
+
+function Row({ r, onOpen, open, onToggle }) {
   const gain = r.position?.entry_price ? (r.price / r.position.entry_price - 1) * 100 : null
   const urgencyLabel = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
 
@@ -28,8 +44,6 @@ function Row({ r, onOpen, open, onToggle, onHide }) {
             Analyze ▸
           </button>
         )}
-        <button className="rowx" title={`Hide ${r.ticker}`}
-                onClick={(e) => { e.stopPropagation(); onHide(r.ticker) }}>✕</button>
       </div>
       {open && (
         <div className="rowdetail">
@@ -132,14 +146,16 @@ export default function Portfolio({ data, onOpen }) {
     const n = new Set(prev); list.forEach(r => n.delete(r.ticker)); return n
   })
   const persistHidden = (s) => localStorage.setItem('looperHidden', JSON.stringify([...s]))
-  const hideRow = (t) => setHidden(prev => { const n = new Set(prev); n.add(t); persistHidden(n); return n })
-  const unhide = (t) => setHidden(prev => { const n = new Set(prev); n.delete(t); persistHidden(n); return n })
+  const toggleHide = (t) => setHidden(prev => { const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); persistHidden(n); return n })
+  const hideAll = (list) => setHidden(prev => { const n = new Set(prev); list.forEach(r => n.add(r.ticker)); persistHidden(n); return n })
+  const showAll = (list) => setHidden(prev => { const n = new Set(prev); list.forEach(r => n.delete(r.ticker)); persistHidden(n); return n })
 
   const results = data.results || []
   const errors = (data.errors || []).filter(e => !dismissedErrors.has(e.ticker))
-  const sells = results.filter(r => r.side === 'sell' && !hidden.has(r.ticker)).sort((a, b) => b.urgency - a.urgency)
-  const buys = results.filter(r => r.side === 'buy' && !hidden.has(r.ticker)).sort((a, b) => b.urgency - a.urgency)
-  const hiddenList = [...hidden]
+  const sells = results.filter(r => r.side === 'sell').sort((a, b) => b.urgency - a.urgency)
+  const buys = results.filter(r => r.side === 'buy').sort((a, b) => b.urgency - a.urgency)
+  const visibleSells = sells.filter(r => !hidden.has(r.ticker))
+  const visibleBuys = buys.filter(r => !hidden.has(r.ticker))
 
   // Watchlist is light — load it on mount. Scanner is heavy (scans ~32 tickers),
   // so only run it the first time you open that section.
@@ -222,70 +238,48 @@ export default function Portfolio({ data, onOpen }) {
       <div className="cols">
         {/* Sell section */}
         <section>
-          <div className="secttitle">
-            <h2 style={{ margin: 0, borderTop: 'none', paddingTop: 0 }}>🔴 Sell Watch</h2>
-            {sells.length > 0 && (
-              <span className="bulk">
-                <button className="link" onClick={() => expandAll(sells)}>expand all</button>
-                <button className="link" onClick={() => collapseAll(sells)}>collapse all</button>
-              </span>
-            )}
-          </div>
-          <p className="sub">
-            {sells.length} {sells.length === 1 ? 'position' : 'positions'} you hold — click a ticker to expand
-          </p>
-          {sells.length > 0 ? (
-            sells.map(r => (
-              <Row key={r.ticker} r={r} onOpen={onOpen} onHide={hideRow}
-                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
-            ))
-          ) : (
+          <h2 style={{ margin: '0 0 4px', borderTop: 'none', paddingTop: 0 }}>🔴 Sell Watch</h2>
+          {sells.length > 0 && (
+            <VisBar list={sells} hidden={hidden} onToggle={toggleHide}
+                    onShowAll={() => showAll(sells)} onHideAll={() => hideAll(sells)} />
+          )}
+          {sells.length === 0 ? (
             <p className="muted" style={{ padding: '16px 0', textAlign: 'center', background: 'var(--surface-alt)', borderRadius: '8px' }}>
               No held positions yet.<br/>
               <span style={{ fontSize: '12px' }}>Add one using the sidebar form.</span>
             </p>
+          ) : visibleSells.length === 0 ? (
+            <p className="muted small">All hidden — click a ticker above to show it.</p>
+          ) : (
+            visibleSells.map(r => (
+              <Row key={r.ticker} r={r} onOpen={onOpen}
+                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
+            ))
           )}
         </section>
 
         {/* Buy section */}
         <section>
-          <div className="secttitle">
-            <h2 style={{ margin: 0, borderTop: 'none', paddingTop: 0 }}>🟢 Re-Entry Zones</h2>
-            {buys.length > 0 && (
-              <span className="bulk">
-                <button className="link" onClick={() => expandAll(buys)}>expand all</button>
-                <button className="link" onClick={() => collapseAll(buys)}>collapse all</button>
-              </span>
-            )}
-          </div>
-          <p className="sub">
-            {buys.length} {buys.length === 1 ? 'position' : 'positions'} in cash — click a ticker to expand
-          </p>
-          {buys.length > 0 ? (
-            buys.map(r => (
-              <Row key={r.ticker} r={r} onOpen={onOpen} onHide={hideRow}
-                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
-            ))
-          ) : (
+          <h2 style={{ margin: '0 0 4px', borderTop: 'none', paddingTop: 0 }}>🟢 Re-Entry Zones</h2>
+          {buys.length > 0 && (
+            <VisBar list={buys} hidden={hidden} onToggle={toggleHide}
+                    onShowAll={() => showAll(buys)} onHideAll={() => hideAll(buys)} />
+          )}
+          {buys.length === 0 ? (
             <p className="muted" style={{ padding: '16px 0', textAlign: 'center', background: 'var(--surface-alt)', borderRadius: '8px' }}>
               Nothing in cash waiting.<br/>
               <span style={{ fontSize: '12px' }}>Sell a position (change status to "cash") and it appears here.</span>
             </p>
+          ) : visibleBuys.length === 0 ? (
+            <p className="muted small">All hidden — click a ticker above to show it.</p>
+          ) : (
+            visibleBuys.map(r => (
+              <Row key={r.ticker} r={r} onOpen={onOpen}
+                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
+            ))
           )}
         </section>
       </div>
-
-      {/* Hidden stocks — click a chip to bring it back */}
-      {hiddenList.length > 0 && (
-        <div className="hidden-strip">
-          <span className="muted small">Hidden ({hiddenList.length}):</span>
-          {hiddenList.map(t => (
-            <button key={t} className="hidden-chip" title={`Restore ${t}`} onClick={() => unhide(t)}>
-              {t} ↩
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Phase 4: Candidate Scanner — collapsible to keep the page short */}
       <section className="collapse">

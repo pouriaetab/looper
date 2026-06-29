@@ -6,15 +6,15 @@ const COLORS = {
   'RE-ENTRY WATCH': '#c77700', 'HOLD': '#1f4e8c', 'WAIT': '#5a5a5a',
 }
 
-function Row({ r, onOpen }) {
-  const [open, setOpen] = useState(false)
+function Row({ r, onOpen, open, onToggle }) {
   const gain = r.position?.entry_price ? (r.price / r.position.entry_price - 1) * 100 : null
   const urgencyLabel = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
 
   return (
-    <div className="row">
-      <div className="rowmain">
-        <span style={{ fontSize: '16px' }}>{urgencyLabel}</span>
+    <div className={`row ${open ? '' : 'row-collapsed'}`}>
+      <div className="rowmain" onClick={onToggle} style={{ cursor: 'pointer' }}>
+        <span className="chev">{open ? '▾' : '▸'}</span>
+        <span style={{ fontSize: '15px' }}>{urgencyLabel}</span>
         <span className="badge" style={{ background: COLORS[r.headline] || '#1f4e8c' }}>
           {r.headline.split(' ')[0]}
         </span>
@@ -22,11 +22,12 @@ function Row({ r, onOpen }) {
         <span className="px">
           ${r.price.toFixed(2)}{gain != null && ` (${gain >= 0 ? '+' : ''}${gain.toFixed(0)}%)`}
         </span>
-        <span className="reason">{r.top_reason}</span>
-        <button className="open" onClick={() => onOpen(r.ticker)}>Analyze ▸</button>
-        <button className="chev" onClick={() => setOpen(!open)} aria-label="details">
-          {open ? '▾' : '▸'}
-        </button>
+        {open && <span className="reason">{r.top_reason}</span>}
+        {open && (
+          <button className="open" onClick={(e) => { e.stopPropagation(); onOpen(r.ticker) }}>
+            Analyze ▸
+          </button>
+        )}
       </div>
       {open && (
         <div className="rowdetail">
@@ -51,14 +52,14 @@ function CandidateRow({ c, onAddToWatchlist }) {
     <div className="row">
       <div className="rowmain">
         <span className="badge" style={{
-          background: c.category === 'oversold' ? '#0b6e3b' : '#c77700'
+          background: c.category.includes('oversold') ? '#0b6e3b' : '#c77700'
         }}>
           {c.category.toUpperCase()}
         </span>
         <span className="tkr">{c.ticker}</span>
         <span className="px">${c.price.toFixed(2)} | RSI {c.rsi.toFixed(0)}</span>
         <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)' }}>
-          {c.category === 'oversold' ? '↓ Good re-entry opportunity' : '↑ Consider taking profit'}
+          {c.category.includes('oversold') ? '↓ potential buy-low' : '↑ potential take-profit'}
         </span>
         <button
           onClick={() => {
@@ -116,6 +117,15 @@ export default function Portfolio({ data, onOpen }) {
   const [wlMsg, setWlMsg] = useState(null)
   const [showScanner, setShowScanner] = useState(false)
   const [showWatch, setShowWatch] = useState(false)
+  const [expanded, setExpanded] = useState(() => new Set())   // expanded row tickers
+
+  const toggleRow = (t) => setExpanded(prev => {
+    const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n
+  })
+  const expandAll = (list) => setExpanded(prev => new Set([...prev, ...list.map(r => r.ticker)]))
+  const collapseAll = (list) => setExpanded(prev => {
+    const n = new Set(prev); list.forEach(r => n.delete(r.ticker)); return n
+  })
 
   const results = data.results || []
   const errors = (data.errors || []).filter(e => !dismissedErrors.has(e.ticker))
@@ -203,14 +213,23 @@ export default function Portfolio({ data, onOpen }) {
       <div className="cols">
         {/* Sell section */}
         <section>
-          <h2 style={{ margin: '0 0 4px 0', borderTop: 'none', paddingTop: 0 }}>
-            🔴 Sell Watch
-          </h2>
+          <div className="secttitle">
+            <h2 style={{ margin: 0, borderTop: 'none', paddingTop: 0 }}>🔴 Sell Watch</h2>
+            {sells.length > 0 && (
+              <span className="bulk">
+                <button className="link" onClick={() => expandAll(sells)}>expand all</button>
+                <button className="link" onClick={() => collapseAll(sells)}>collapse all</button>
+              </span>
+            )}
+          </div>
           <p className="sub">
-            {sells.length} {sells.length === 1 ? 'position' : 'positions'} you hold — most urgent on top
+            {sells.length} {sells.length === 1 ? 'position' : 'positions'} you hold — click a ticker to expand
           </p>
           {sells.length > 0 ? (
-            sells.map(r => <Row key={r.ticker} r={r} onOpen={onOpen} />)
+            sells.map(r => (
+              <Row key={r.ticker} r={r} onOpen={onOpen}
+                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
+            ))
           ) : (
             <p className="muted" style={{ padding: '16px 0', textAlign: 'center', background: 'var(--surface-alt)', borderRadius: '8px' }}>
               No held positions yet.<br/>
@@ -221,14 +240,23 @@ export default function Portfolio({ data, onOpen }) {
 
         {/* Buy section */}
         <section>
-          <h2 style={{ margin: '0 0 4px 0', borderTop: 'none', paddingTop: 0 }}>
-            🟢 Re-Entry Zones
-          </h2>
+          <div className="secttitle">
+            <h2 style={{ margin: 0, borderTop: 'none', paddingTop: 0 }}>🟢 Re-Entry Zones</h2>
+            {buys.length > 0 && (
+              <span className="bulk">
+                <button className="link" onClick={() => expandAll(buys)}>expand all</button>
+                <button className="link" onClick={() => collapseAll(buys)}>collapse all</button>
+              </span>
+            )}
+          </div>
           <p className="sub">
-            {buys.length} {buys.length === 1 ? 'position' : 'positions'} in cash — closest to buy on top
+            {buys.length} {buys.length === 1 ? 'position' : 'positions'} in cash — click a ticker to expand
           </p>
           {buys.length > 0 ? (
-            buys.map(r => <Row key={r.ticker} r={r} onOpen={onOpen} />)
+            buys.map(r => (
+              <Row key={r.ticker} r={r} onOpen={onOpen}
+                   open={expanded.has(r.ticker)} onToggle={() => toggleRow(r.ticker)} />
+            ))
           ) : (
             <p className="muted" style={{ padding: '16px 0', textAlign: 'center', background: 'var(--surface-alt)', borderRadius: '8px' }}>
               Nothing in cash waiting.<br/>

@@ -161,6 +161,15 @@ input:focus, select:focus {
   font-size: 12px; color: var(--text-secondary); line-height: 1.5;
 }
 
+/* Collapsed rows: tight one-liner (ticker list) */
+.row-collapsed { padding: 7px 12px; }
+.row .chev { color: var(--text-secondary); font-size: 12px; }
+
+/* Section title with expand/collapse-all controls */
+.secttitle { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 2px; }
+.bulk { display: flex; gap: 10px; flex-shrink: 0; }
+.bulk .link { font-size: 12px; }
+
 /* Form & Holdings */
 .addbox {
   border: 1px solid var(--border); border-radius: 10px; padding: 16px;
@@ -292,15 +301,17 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 /* Portfolio tally (totals strip) */
 .tally {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 10px;
-  margin: 0 0 16px 0;
+  grid-auto-flow: column;                 /* always one row */
+  grid-auto-columns: minmax(120px, 1fr);
+  gap: 8px;
+  margin: 0 0 14px 0;
+  overflow-x: auto;                        /* scroll instead of wrapping if tight */
 }
 .tcard {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   box-shadow: var(--shadow-sm);
 }
 .tcard .tlabel {

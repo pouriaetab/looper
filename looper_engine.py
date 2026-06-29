@@ -892,15 +892,18 @@ def scan_candidates(tickers=None, limit=10):
             ema_20 = fetch_ema(ticker, es, timespan=tspan)
             ema_50 = fetch_ema(ticker, el, timespan=tspan)
 
-            # Determine if oversold or overbought
-            if rsi < 35:
-                category = "oversold"
-                urgency = (35 - rsi) / 35  # closer to 0, more oversold
-            elif rsi > 72:
-                category = "overbought"
-                urgency = (rsi - 72) / 28  # closer to 100, more overbought
+            # Categorize by RSI, including "near" tiers so the scan isn't empty when
+            # nothing is at a hard extreme (the 45–65 middle is skipped as neutral).
+            if rsi <= 35:
+                category, urgency = "oversold", (40 - rsi) / 40
+            elif rsi <= 45:
+                category, urgency = "near oversold", (45 - rsi) / 45 * 0.6
+            elif rsi >= 72:
+                category, urgency = "overbought", (rsi - 65) / 35
+            elif rsi >= 65:
+                category, urgency = "near overbought", (rsi - 65) / 35 * 0.6
             else:
-                continue  # skip neutral RSI
+                continue  # neutral RSI (45–65) — nothing actionable
 
             # Analyst target if this ticker is one of your tracked stocks
             stock_cfg = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker.upper()), None)

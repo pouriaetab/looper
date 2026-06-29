@@ -9,9 +9,9 @@ const COLORS = {
 function VisBar({ list, hidden, onToggle, onShowAll, onHideAll }) {
   return (
     <div className="visbar">
-      <button className="link" onClick={onShowAll} title="Show all boxes">👁 show all</button>
+      <button className="link" onClick={onShowAll} title="Show all boxes">show all</button>
       <span className="vsep">·</span>
-      <button className="link" onClick={onHideAll} title="Hide all boxes">🙈 hide all</button>
+      <button className="link" onClick={onHideAll} title="Hide all boxes">hide all</button>
       {list.map(r => (
         <button key={r.ticker}
           className={`vchip ${hidden.has(r.ticker) ? 'off' : ''}`}
@@ -45,6 +45,14 @@ function Row({ r, onOpen, open, onToggle }) {
           </button>
         )}
       </div>
+      {r.alert && (
+        <div className={`alert-box lvl-${r.alert.level}`}>
+          <strong>⚑ {r.alert.title}</strong>
+          {r.alert.move_pct != null && <span className="amove"> · {r.alert.move_pct >= 0 ? '+' : ''}{r.alert.move_pct}%</span>}
+          {r.alert.headline && <span className="ah"> — {r.alert.headline}</span>}
+          <div className="asug">{r.alert.suggestion}</div>
+        </div>
+      )}
       {open && (
         <div className="rowdetail">
           <strong>Signals:</strong> RSI {r.rsi.toFixed(0)} · EMA20 ${r.ema_short.toFixed(2)} · EMA50 ${r.ema_long.toFixed(2)}<br/>

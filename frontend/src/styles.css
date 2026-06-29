@@ -162,6 +162,16 @@ input:focus, select:focus {
   font-size: 12px; color: var(--text-secondary); line-height: 1.5;
 }
 
+/* Event alert inside a stock box (M&A / big move) */
+.alert-box {
+  margin-top: 8px; padding: 7px 10px; border-radius: 8px; font-size: 12px; line-height: 1.45;
+  border: 1px solid var(--accent); background: var(--surface-alt);
+}
+.alert-box.lvl-move { border-color: var(--warning); }
+.alert-box .amove { font-weight: 700; }
+.alert-box .ah { color: var(--text-secondary); }
+.alert-box .asug { margin-top: 3px; font-weight: 600; }
+
 /* Collapsed rows: tight one-liner (ticker list) */
 .row-collapsed { padding: 7px 12px; }
 .row .chev { color: var(--text-secondary); font-size: 12px; }
@@ -192,6 +202,13 @@ input:focus, select:focus {
 .addbox h2 {
   font-size: 16px; margin: 0 0 14px; font-weight: 600; letter-spacing: -0.3px;
 }
+.addhead {
+  width: 100%; display: flex; align-items: center; justify-content: space-between;
+  background: transparent; border: none; padding: 0 0 12px; margin: 0;
+  font-size: 16px; font-weight: 600; cursor: pointer; color: var(--text);
+}
+.addhead:hover { background: transparent; box-shadow: none; color: var(--accent); }
+.addhead .chev { color: var(--text-secondary); font-size: 13px; }
 
 .addform { display: flex; flex-direction: column; gap: 10px; }
 

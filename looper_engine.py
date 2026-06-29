@@ -465,6 +465,7 @@ def evaluate(ticker, cfg):
         "timespan": tspan,
         "horizon": horizon,
         "data_limited": data_limited,
+        "last_move_pct": round((price / bars[-2]["c"] - 1) * 100, 2) if len(bars) >= 2 and bars[-2]["c"] else None,
         "big_moves": biggest_daily_moves(bars),
         "headline": headline,
         "action": action,
@@ -782,6 +783,44 @@ def run(ticker=None, save=True):
     return result
 
 
+def build_alert(result, news):
+    """Concise, actionable alert for a stock box: flags a possible M&A/deal (or other
+    catalyst) and/or a big single-bar move, with a one-line summary + suggested action.
+    Returns None when nothing notable is happening."""
+    import fundamentals
+    move = result.get("last_move_pct")
+    state = result.get("position", {}).get("state")
+    cats = fundamentals.catalysts(news) or []
+    deal = next((c for c in cats if str(c.get("type", "")).startswith("M&A")), None)
+    big = move is not None and abs(move) >= 6.0
+
+    if not deal and not big and not cats:
+        return None
+
+    if deal:
+        title, headline, level = "Possible deal / M&A", deal.get("headline", ""), "event"
+    elif cats:
+        title, headline, level = cats[0].get("type", "News"), cats[0].get("headline", ""), "event"
+    else:
+        digest = fundamentals.news_digest(news, result["price"], result["ema_short"],
+                                          result["ema_long"], result["rsi"]) or {}
+        title, headline, level = f"{move:+.1f}% move", digest.get("momentum", ""), "move"
+
+    if deal and state == "holding":
+        suggestion = "M&A often pops the stock — consider selling into the deal to lock the gain."
+    elif big and move > 0 and state == "holding":
+        suggestion = "Big up-move — review taking profit."
+    elif big and move < 0 and state == "holding":
+        suggestion = "Big drop — hold if the thesis holds; add only if quality is intact."
+    elif state == "cash" and big and move < 0:
+        suggestion = "Big drop while in cash — possible re-entry; check the scorecard."
+    else:
+        suggestion = "Open the detail page before acting."
+
+    return {"level": level, "title": title, "headline": headline,
+            "move_pct": move, "suggestion": suggestion}
+
+
 def run_all(save=True):
     """Evaluate every stock in config.json. Writes per-stock files plus a combined
     data/portfolio.json. Errors on one stock don't stop the others."""
@@ -793,6 +832,10 @@ def run_all(save=True):
         tkr = stock["ticker"].upper()
         try:
             r = evaluate(tkr, _stock_cfg(cfg, stock))
+            try:
+                r["alert"] = build_alert(r, fetch_news(tkr, limit=8))
+            except Exception:        # noqa: BLE001 - alerts are best-effort
+                r["alert"] = None
             results.append(r)
             if save:
                 _save(r)

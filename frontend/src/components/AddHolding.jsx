@@ -19,6 +19,7 @@ export default function AddHolding({ onChange }) {
   const [stocks, setStocks] = useState([])
   const [sellFor, setSellFor] = useState(null)   // ticker currently being sold
   const [sellForm, setSellForm] = useState({ shares: '', price: '' })
+  const [showForm, setShowForm] = useState(true) // collapse the add form to bring Portfolio up
 
   const refreshList = () => getConfig().then(d => setStocks(d.stocks || [])).catch(() => {})
   useEffect(() => { refreshList() }, [])
@@ -111,7 +112,12 @@ export default function AddHolding({ onChange }) {
 
   return (
     <div className="addbox">
-      <h2>Add / Update Position</h2>
+      <button className="addhead" onClick={() => setShowForm(v => !v)}
+              title={showForm ? 'Hide the form' : 'Show the form'}>
+        <span>Add / Update Position</span>
+        <span className="chev">{showForm ? '▲' : '▼'}</span>
+      </button>
+      {showForm && (
       <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
         Enter a stock symbol, the price you paid, and number of shares. The app tracks sell signals when holding, and re-entry zones after you sell.
       </p>
@@ -184,6 +190,7 @@ export default function AddHolding({ onChange }) {
           </p>
         )}
       </form>
+      )}
 
       {stocks.length > 0 && (
         <div className="holdings">

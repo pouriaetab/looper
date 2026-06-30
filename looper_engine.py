@@ -901,81 +901,66 @@ def evaluate_watch(ticker):
     return evaluate(ticker.upper(), scfg)
 
 
-def scan_candidates(tickers=None, limit=10):
-    """Phase 4: Scan for quality stocks that are oversold (RSI < 35) or overbought (RSI > 72).
-    Returns candidates with price, RSI, analyst target, and quality score.
-    If tickers not provided, scans a default watchlist of popular liquid stocks.
-    """
+def fetch_movers(direction):
+    """Top ~20 daily gainers or losers across the whole US market (min volume 10k).
+    direction: 'gainers' or 'losers'."""
+    data = _get(f"/v2/snapshot/locale/us/markets/stocks/{direction}", {})
+    return data.get("tickers", []) or []
+
+
+def scan_candidates(tickers=None, limit=20):
+    """Daily-movers swing scanner (days–1 week focus). Instead of a fixed list, it
+    scans the WHOLE market's biggest movers each day: the biggest DROPS are buy-low /
+    oversold candidates, the biggest POPS are overbought / take-profit candidates —
+    each confirmed with RSI. Fresh names every day."""
     if not API_KEY:
         raise RuntimeError("MASSIVE_API_KEY is not set.")
 
-    # Default universe: popular, liquid, quality-focused stocks
-    if not tickers:
-        tickers = [
-            "NVDA", "AVGO", "ADBE", "ASML", "CDNS", "COST", "CRM", "DDOG",
-            "ENPH", "GOOG", "GOOGL", "HUBS", "IRM", "KLAC", "LRCX", "META",
-            "MSFT", "NFLX", "NOW", "PSTG", "PYPL", "SNOW", "SPLK", "TTD",
-            "TSLA", "WDAY", "ZM", "BRKR", "ACGL", "AEP", "BDX", "JNJ"
-        ]
+    MIN_PRICE = 5.0      # skip penny/micro names
+    PER_SIDE = 12        # how many of each side to RSI-confirm
+    out = []
 
-    # Scan on the same horizon (daily/weekly/monthly) the rest of LOOPER is using,
-    # so the scanner's oversold/overbought reads match the portfolio + watchlist.
-    cfg = load_config()
-    _, tspan, hth = _resolve_horizon(cfg.get("thresholds", {}))
-    es, el = hth["ema_short"], hth["ema_long"]
-
-    candidates = []
-    for ticker in tickers:
+    for direction, side in (("losers", "buy"), ("gainers", "sell")):
         try:
-            # Fetch current RSI and price on the active horizon
-            rsi_data = fetch_rsi_series(ticker, 14, limit=1, timespan=tspan)
-            rsi = rsi_data[0] if rsi_data else None
-
-            if rsi is None:
+            movers = fetch_movers(direction)
+        except Exception:        # noqa: BLE001
+            movers = []
+        rows = []
+        for m in movers:
+            day = m.get("day") or {}
+            prev = m.get("prevDay") or {}
+            price = day.get("c") or prev.get("c")
+            chg = m.get("todaysChangePerc")
+            if not price or price < MIN_PRICE or chg is None:
                 continue
+            rows.append((abs(chg), m.get("ticker"), price, chg))
+        rows.sort(reverse=True)                      # biggest movers first
 
-            bars = fetch_daily_bars(ticker, timespan=tspan)
-            if not bars:
+        for _, tkr, price, chg in rows[:PER_SIDE]:
+            if not tkr:
                 continue
-
-            price = bars[-1]["c"]  # last close
-            ema_20 = fetch_ema(ticker, es, timespan=tspan)
-            ema_50 = fetch_ema(ticker, el, timespan=tspan)
-
-            # Categorize by RSI, including "near" tiers so the scan isn't empty when
-            # nothing is at a hard extreme (the 45–65 middle is skipped as neutral).
-            if rsi <= 35:
-                category, urgency = "oversold", (40 - rsi) / 40
-            elif rsi <= 45:
-                category, urgency = "near oversold", (45 - rsi) / 45 * 0.6
-            elif rsi >= 72:
-                category, urgency = "overbought", (rsi - 65) / 35
-            elif rsi >= 65:
-                category, urgency = "near overbought", (rsi - 65) / 35 * 0.6
+            try:
+                rsi_data = fetch_rsi_series(tkr, 14, limit=1, timespan="day")
+                rsi = rsi_data[0] if rsi_data else None
+            except Exception:        # noqa: BLE001
+                rsi = None
+            if side == "buy":
+                category = "oversold" if (rsi is not None and rsi <= 40) else "pullback (buy-low)"
             else:
-                continue  # neutral RSI (45–65) — nothing actionable
-
-            # Analyst target if this ticker is one of your tracked stocks
-            stock_cfg = next((s for s in cfg.get("stocks", []) if s["ticker"].upper() == ticker.upper()), None)
-            analyst_target = stock_cfg.get("analyst_target") if stock_cfg else None
-
-            candidates.append({
-                "ticker": ticker,
+                category = "overbought" if (rsi is not None and rsi >= 65) else "extended (take-profit)"
+            out.append({
+                "ticker": tkr,
                 "price": round(price, 2),
-                "rsi": round(rsi, 1),
-                "ema_20": round(ema_20, 2),
-                "ema_50": round(ema_50, 2),
+                "rsi": round(rsi, 1) if rsi is not None else None,
+                "change_pct": round(chg, 1),
                 "category": category,
-                "urgency": round(urgency, 2),
-                "analyst_target": analyst_target,
+                "side": side,
+                "urgency": round(min(abs(chg) / 12.0, 1.0), 2),
                 "last_updated": dt.datetime.now().isoformat(timespec="seconds"),
             })
-        except Exception:  # noqa: BLE001 - keep scanning even if one fails
-            pass
 
-    # Sort by urgency (highest first)
-    candidates.sort(key=lambda x: -x["urgency"])
-    return candidates[:limit]
+    out.sort(key=lambda x: -x["urgency"])            # biggest movers on top
+    return out[:limit] if limit else out
 
 
 if __name__ == "__main__":

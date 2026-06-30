@@ -71,19 +71,21 @@ function Row({ r, onOpen, open, onToggle }) {
 
 function CandidateRow({ c, onAddToWatchlist }) {
   const [adding, setAdding] = useState(false)
+  const isBuy = c.side === 'buy'
 
   return (
     <div className="row">
       <div className="rowmain">
-        <span className="badge" style={{
-          background: c.category.includes('oversold') ? '#1B7F49' : '#B07515'
-        }}>
+        <span className="badge" style={{ background: isBuy ? '#1B7F49' : '#B07515' }}>
           {c.category.toUpperCase()}
         </span>
         <span className="tkr">{c.ticker}</span>
-        <span className="px">${c.price.toFixed(2)} | RSI {c.rsi.toFixed(0)}</span>
+        <span className="px">
+          ${c.price.toFixed(2)} · {c.change_pct >= 0 ? '+' : ''}{c.change_pct}% today
+          {c.rsi != null && ` · RSI ${Math.round(c.rsi)}`}
+        </span>
         <span style={{ flex: 1, fontSize: '13px', color: 'var(--text-secondary)' }}>
-          {c.category.includes('oversold') ? '↓ potential buy-low' : '↑ potential take-profit'}
+          {isBuy ? '↓ big drop — potential buy-low' : '↑ big pop — potential take-profit'}
         </span>
         <button
           onClick={() => {
@@ -174,7 +176,7 @@ export default function Portfolio({ data, onOpen }) {
   useEffect(() => {
     if (showScanner && candidates === null && !loadingCandidates) {
       setLoadingCandidates(true)
-      getCandidates(8).then(d => setCandidates(d.candidates || []))
+      getCandidates(20).then(d => setCandidates(d.candidates || []))
         .catch(() => setCandidates([])).finally(() => setLoadingCandidates(false))
     }
   }, [showScanner, candidates, loadingCandidates])
@@ -297,7 +299,7 @@ export default function Portfolio({ data, onOpen }) {
         </button>
         {showScanner && (
           <div className="sectbody">
-            <p className="sub">Quality stocks oversold (re-entry) or overbought (take-profit), on your current horizon</p>
+            <p className="sub">Today's biggest market movers — big drops to buy low, big pops to take profit (fresh names daily)</p>
             {loadingCandidates ? (
               <p className="muted">Scanning the universe… (this takes a moment)</p>
             ) : (candidates && candidates.length > 0) ? (

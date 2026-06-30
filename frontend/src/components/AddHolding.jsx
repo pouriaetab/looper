@@ -117,7 +117,7 @@ export default function AddHolding({ onChange }) {
         <span>Add / Update Position</span>
         <span className="chev">{showForm ? '▲' : '▼'}</span>
       </button>
-      {showForm && (
+      {showForm && (<>
       <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
         Enter a stock symbol, the price you paid, and number of shares. The app tracks sell signals when holding, and re-entry zones after you sell.
       </p>
@@ -190,7 +190,7 @@ export default function AddHolding({ onChange }) {
           </p>
         )}
       </form>
-      )}
+      </>)}
 
       {stocks.length > 0 && (
         <div className="holdings">

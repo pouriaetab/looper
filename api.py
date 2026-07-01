@@ -153,15 +153,21 @@ def patch(ticker: str, body: StockPatch):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-class ReserveIn(BaseModel):
-    amount: float
-
-
-@app.post("/api/stocks/{ticker}/reserve")
-def reserve_use(ticker: str, body: ReserveIn):
-    """Record that some of this position was funded from the re-entry reserve."""
+@app.patch("/api/ledger/{index}")
+def edit_ledger(index: int, body: dict):
+    """Edit one ledger row (the ledger is the editable master history: a fix here
+    updates every total that reads from it). Send only the columns you changed."""
     try:
-        return engine.record_reserve_use(ticker, body.amount)
+        return engine.update_ledger_row(index, body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/ledger/{index}")
+def remove_ledger(index: int):
+    """Delete one ledger row (e.g. a stray/duplicate entry)."""
+    try:
+        return engine.delete_ledger_row(index)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

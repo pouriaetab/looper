@@ -391,6 +391,7 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   overflow-x: auto;
 }
 .tdetail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.tscroll { overflow-x: auto; }
 .ttable { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
 .ttable th, .ttable td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); }
 .ttable th:first-child, .ttable td:first-child,
@@ -401,3 +402,24 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
 .ttable .pos { color: var(--success); }
 .ttable .neg { color: var(--danger); }
 .ttable tfoot td { border-top: 2px solid var(--border); border-bottom: none; }
+
+/* Ledger master-file table: tighter so all columns fit with the sidebar open */
+.ledgertable { font-size: 11px; }
+.ledgertable th, .ledgertable td { padding: 4px 7px; }
+.ledgertable thead th { font-size: 10px; }
+.ledgertable tr.editing { background: rgba(200, 100, 63, 0.06); }
+.ledgertable .ledgeract { white-space: nowrap; text-align: right; }
+.ledgertable .ledgeract .link { padding: 1px 3px; font-size: 12px; }
+.ledit {
+  width: 72px; max-width: 84px; padding: 2px 4px; font-size: 11px;
+  border: 1px solid var(--accent); border-radius: 4px; background: var(--surface);
+  color: var(--text); text-align: right;
+}
+.ledgerbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0 0 10px; font-size: 12px;
+}
+.ledgerbar select {
+  font-size: 12px; padding: 3px 6px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text);
+}

@@ -29,15 +29,19 @@ export const sellStock = (ticker, body) =>
     body: JSON.stringify(body),
   }).then(j)
 
-export const recordReserveUse = (ticker, amount) =>
-  fetch(`/api/stocks/${ticker}/reserve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount }),
-  }).then(j)
-
 export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
+
+// Edit the ledger as a master file: fix a value in one row, or delete a row.
+export const updateLedgerRow = (index, fields) =>
+  fetch(`/api/ledger/${index}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  }).then(j)
+
+export const deleteLedgerRow = (index) =>
+  fetch(`/api/ledger/${index}`, { method: 'DELETE' }).then(j)
 
 export const getSettings = () => fetch('/api/settings').then(j)
 export const setHorizon = (horizon) =>

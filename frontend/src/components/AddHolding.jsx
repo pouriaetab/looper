@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { addStock, removeStock, sellStock, getConfig, recordReserveUse } from '../api'
+import { addStock, removeStock, sellStock, getConfig } from '../api'
 
 const EMPTY = { ticker: '', entry_price: '', shares: '1', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: false }
 
@@ -90,21 +90,6 @@ export default function AddHolding({ onChange }) {
     } catch (err) {
       setMsg(`Error selling ${ticker}: ${err.message}`)
       setMsgType('error')
-    }
-  }
-
-  const reserveUse = async (s) => {
-    const v = window.prompt(`How much of ${s.ticker} was funded from the re-entry reserve? ($)`)
-    if (v == null) return
-    const amt = parseFloat(v)
-    if (!(amt > 0)) { setMsg('Enter an amount above 0.'); setMsgType('error'); return }
-    try {
-      await recordReserveUse(s.ticker, amt)
-      setMsg(`✓ Recorded $${amt} of ${s.ticker} from the re-entry reserve.`)
-      setMsgType('success')
-      onChange && onChange()
-    } catch (err) {
-      setMsg(`Error: ${err.message}`); setMsgType('error')
     }
   }
 
@@ -232,7 +217,6 @@ export default function AddHolding({ onChange }) {
                     {sellFor === s.ticker ? 'cancel' : 'sell'}
                   </button>
                 )}
-                <button className="link" onClick={() => reserveUse(s)} title="Record how much of this buy came from the re-entry reserve">reserve</button>
                 <button className="link danger" onClick={() => remove(s)}>
                   {s.position?.state === 'cash' ? 'stop' : 'delete'}
                 </button>

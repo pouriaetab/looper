@@ -72,6 +72,45 @@ def read_ledger() -> list:
         return list(csv.DictReader(f))
 
 
+def _write_ledger(rows: list) -> None:
+    """Rewrite the whole ledger CSV from `rows` (list of dicts). Used by the
+    editable 'master file' editor so a fix in the table updates the source of truth."""
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(LEDGER, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=LEDGER_FIELDS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in LEDGER_FIELDS})
+
+
+def update_ledger_row(index: int, fields: dict) -> dict:
+    """Edit one ledger row in place (the ledger is the master history: editing a
+    value here corrects it everywhere the tally reads from). Only real ledger
+    columns are writable; the timestamp is preserved. Blank/None clears a cell."""
+    rows = read_ledger()
+    if index < 0 or index >= len(rows):
+        raise ValueError(f"Ledger row {index} does not exist.")
+    editable = set(LEDGER_FIELDS) - {"timestamp"}
+    row = rows[index]
+    for key, val in fields.items():
+        if key not in editable:
+            continue
+        row[key] = "" if val is None else val
+    rows[index] = row
+    _write_ledger(rows)
+    return row
+
+
+def delete_ledger_row(index: int) -> dict:
+    """Remove one ledger row (e.g. a stray/duplicate entry)."""
+    rows = read_ledger()
+    if index < 0 or index >= len(rows):
+        raise ValueError(f"Ledger row {index} does not exist.")
+    removed = rows.pop(index)
+    _write_ledger(rows)
+    return removed
+
+
 def _now_parts(when=None):
     moment = dt.datetime.now() if not when else dt.datetime.fromisoformat(when)
     return moment.isoformat(timespec="seconds"), moment.strftime("%Y-%m-%d")

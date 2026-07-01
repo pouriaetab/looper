@@ -181,6 +181,24 @@ def delete(ticker: str):
 
 
 # ============================================================================
+# Deep Opportunity Scan (background job with progress)
+# ============================================================================
+@app.post("/api/scan/start")
+def scan_start():
+    """Kick off a deep whole-market scan in the background."""
+    try:
+        return engine.start_scan()
+    except Exception as e:        # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/scan/status")
+def scan_status():
+    """Progress + results of the deep scan (or the last saved scan when idle)."""
+    return engine.scan_status()
+
+
+# ============================================================================
 # Phase 4: Candidate Scanner + Watchlist
 # ============================================================================
 @app.get("/api/candidates")

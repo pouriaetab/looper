@@ -20,6 +20,7 @@ import os
 import sys
 import csv
 import json
+import threading
 import datetime as dt
 from pathlib import Path
 
@@ -961,6 +962,178 @@ def scan_candidates(tickers=None, limit=20):
 
     out.sort(key=lambda x: -x["urgency"])            # biggest movers on top
     return out[:limit] if limit else out
+
+
+# =========================================================================== #
+# Deep Opportunity Scan — whole-market snapshot + deep analysis + theme momentum.
+# Runs in a background thread with live progress (see _SCAN / start_scan).
+# =========================================================================== #
+
+# Curated theme baskets — representative liquid names per theme. Momentum is
+# measured from the daily snapshot, so we can flag which themes are heating up
+# (like quantum/semis did) or cooling (like some robotics names) without extra calls.
+THEMES = {
+    "AI / datacenter": ["NVDA", "AVGO", "AMD", "SMCI", "DELL", "ANET", "VRT", "MRVL", "MU", "CRWV"],
+    "Semiconductors": ["NVDA", "AMD", "AVGO", "MU", "TSM", "ASML", "LRCX", "KLAC", "AMAT", "QCOM", "INTC", "ARM"],
+    "Quantum computing": ["IONQ", "RGTI", "QBTS", "QUBT", "ARQQ", "LAES"],
+    "Robotics / automation": ["ISRG", "ROK", "TER", "PATH", "SERV", "RR", "ABB", "OMCL"],
+    "Nuclear / uranium": ["CCJ", "UEC", "SMR", "OKLO", "LEU", "NNE", "BWXT", "VST", "CEG"],
+    "Cybersecurity": ["PANW", "CRWD", "ZS", "FTNT", "S", "OKTA", "NET"],
+    "EV / batteries": ["TSLA", "RIVN", "LCID", "QS", "ALB", "LI", "NIO"],
+    "Space / defense": ["RKLB", "LMT", "RTX", "LHX", "ASTS", "PL", "LUNR"],
+    "Biotech": ["MRNA", "VRTX", "REGN", "CRSP", "NTLA", "BEAM"],
+    "Crypto-linked": ["COIN", "MARA", "RIOT", "CLSK", "MSTR", "HOOD"],
+}
+
+_SCAN = {
+    "running": False, "stage": "idle", "progress": 0, "total": 0,
+    "started": None, "finished": None, "error": None,
+    "scanned_universe": 0, "results": None, "themes": None,
+}
+_SCAN_LOCK = threading.Lock()
+
+
+def fetch_full_snapshot():
+    """One call: every US ticker's latest daily bar (price, %chg, volume)."""
+    data = _get("/v2/snapshot/locale/us/markets/stocks/tickers", {})
+    out = {}
+    for t in data.get("tickers", []) or []:
+        sym = t.get("ticker")
+        day = t.get("day") or {}
+        prev = t.get("prevDay") or {}
+        price = day.get("c") or prev.get("c")
+        if not sym or not price:
+            continue
+        out[sym] = {"price": price, "chg": t.get("todaysChangePerc"),
+                    "vol": day.get("v") or 0, "prev_vol": prev.get("v") or 0}
+    return out
+
+
+def theme_momentum(snap):
+    """Average daily move per theme basket → which sectors are hot / cooling today."""
+    themes = []
+    for name, syms in THEMES.items():
+        rows = [snap[s] for s in syms if s in snap and snap[s].get("chg") is not None]
+        if not rows:
+            continue
+        avg = sum(r["chg"] for r in rows) / len(rows)
+        up = sum(1 for r in rows if r["chg"] > 0)
+        themes.append({
+            "theme": name, "avg_chg": round(avg, 2), "up": up, "count": len(rows),
+            "state": "hot" if avg >= 1.5 else "cooling" if avg <= -1.5 else "mixed",
+        })
+    themes.sort(key=lambda x: -x["avg_chg"])
+    return themes
+
+
+def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=3_000_000):
+    """Background job: full-market snapshot -> liquidity filter -> deep RSI/EMA on the
+    most interesting names -> classified opportunities + theme momentum. Updates _SCAN
+    so the UI can show a progress bar. Persists to data/scan.json."""
+    with _SCAN_LOCK:
+        _SCAN.update(running=True, stage="snapshot", progress=0, total=0,
+                     started=dt.datetime.now().isoformat(timespec="seconds"),
+                     finished=None, error=None)
+    try:
+        snap = fetch_full_snapshot()
+        _SCAN["scanned_universe"] = len(snap)
+
+        # Rank the whole liquid market for "something is happening": magnitude of the
+        # day's move amplified by a volume surge vs. the prior day.
+        ranked = []
+        for sym, d in snap.items():
+            price, chg, vol = d["price"], d.get("chg"), d["vol"]
+            if chg is None or price < min_price or price * vol < min_dollar_vol:
+                continue
+            vsurge = (vol / d["prev_vol"]) if d["prev_vol"] else 1.0
+            interest = abs(chg) * (1 + min(vsurge, 5) / 5)
+            ranked.append((interest, sym, price, chg, round(vsurge, 2)))
+        ranked.sort(reverse=True)
+        top = ranked[:top_n]
+
+        with _SCAN_LOCK:
+            _SCAN.update(stage="analyzing", total=len(top), progress=0)
+
+        results = []
+        for i, (interest, sym, price, chg, vsurge) in enumerate(top, 1):
+            try:
+                rsi_series = fetch_rsi_series(sym, 14, limit=1, timespan="day")
+                rsi = rsi_series[0] if rsi_series else None
+                ema20 = fetch_ema(sym, 20, timespan="day")
+                ema50 = fetch_ema(sym, 50, timespan="day")
+            except Exception:        # noqa: BLE001
+                rsi = ema20 = ema50 = None
+
+            if rsi is not None and rsi <= 40 and chg < 0:
+                bucket = "buy-low"            # oversold pullback — potential entry
+            elif rsi is not None and rsi >= 68 and chg > 0:
+                bucket = "overbought"         # extended — take profit / don't chase
+            elif chg > 0 and vsurge >= 1.5:
+                bucket = "momentum"           # breaking out on volume — hot name
+            else:
+                bucket = "watch"
+
+            uptrend = (ema20 is not None and ema50 is not None and ema20 > ema50)
+            results.append({
+                "ticker": sym, "price": round(price, 2),
+                "change_pct": round(chg, 1),
+                "rsi": round(rsi, 1) if rsi is not None else None,
+                "vol_surge": vsurge, "bucket": bucket, "uptrend": uptrend,
+                "score": round(interest, 1),
+            })
+            with _SCAN_LOCK:
+                _SCAN["progress"] = i
+
+        # nice ordering: buy-low first (your entries), then momentum, then overbought
+        order = {"buy-low": 0, "momentum": 1, "overbought": 2, "watch": 3}
+        results.sort(key=lambda r: (order.get(r["bucket"], 9), -r["score"]))
+        themes = theme_momentum(snap)
+
+        DATA_DIR.mkdir(exist_ok=True)
+        payload = {"as_of": dt.datetime.now().isoformat(timespec="seconds"),
+                   "results": results, "themes": themes,
+                   "scanned_universe": _SCAN["scanned_universe"]}
+        with open(DATA_DIR / "scan.json", "w") as f:
+            json.dump(payload, f, indent=2)
+
+        with _SCAN_LOCK:
+            _SCAN.update(running=False, stage="done", results=results, themes=themes,
+                         finished=payload["as_of"])
+    except Exception as e:        # noqa: BLE001
+        with _SCAN_LOCK:
+            _SCAN.update(running=False, stage="error", error=str(e))
+
+
+def start_scan():
+    """Kick off the deep scan in a background thread (no-op if already running)."""
+    if not API_KEY:
+        raise RuntimeError("MASSIVE_API_KEY is not set.")
+    with _SCAN_LOCK:
+        if _SCAN["running"]:
+            return {"running": True, "stage": _SCAN["stage"]}
+    threading.Thread(target=run_deep_scan, daemon=True).start()
+    return {"running": True, "stage": "starting"}
+
+
+def scan_status():
+    """Current progress + results. Falls back to the last saved scan when idle."""
+    with _SCAN_LOCK:
+        st = {k: _SCAN[k] for k in ("running", "stage", "progress", "total",
+                                    "started", "finished", "error", "scanned_universe")}
+        st["results"] = _SCAN.get("results")
+        st["themes"] = _SCAN.get("themes")
+    if st["results"] is None:
+        f = DATA_DIR / "scan.json"
+        if f.exists():
+            try:
+                saved = json.load(open(f))
+                st["results"] = saved.get("results")
+                st["themes"] = saved.get("themes")
+                st["finished"] = saved.get("as_of")
+                st["scanned_universe"] = saved.get("scanned_universe", 0)
+            except Exception:        # noqa: BLE001
+                pass
+    return st
 
 
 if __name__ == "__main__":

@@ -40,6 +40,10 @@ export const setHorizon = (horizon) =>
     body: JSON.stringify({ horizon }),
   }).then(j)
 
+// Deep Opportunity Scan (background job)
+export const startScan = () => fetch('/api/scan/start', { method: 'POST' }).then(j)
+export const scanStatus = () => fetch('/api/scan/status').then(j)
+
 // Phase 4: Candidates & Watchlist
 export const getCandidates = (limit = 10) => fetch(`/api/candidates?limit=${limit}`).then(j)
 

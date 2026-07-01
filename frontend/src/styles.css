@@ -172,6 +172,23 @@ input:focus, select:focus {
 .alert-box .ah { color: var(--text-secondary); }
 .alert-box .asug { margin-top: 3px; font-weight: 600; }
 
+/* Deep Opportunity Scan */
+.scanbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 0 0 12px; }
+.scanprog { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.pbar { width: 160px; height: 8px; border-radius: 6px; background: var(--surface-alt); overflow: hidden; border: 1px solid var(--border); }
+.pfill { display: block; height: 100%; background: var(--accent); transition: width 0.4s ease; }
+.themes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 14px; }
+.theme { font-size: 12px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); }
+.theme b { font-weight: 700; }
+.theme.t-hot { color: var(--success); border-color: var(--success); }
+.theme.t-cooling { color: var(--danger); border-color: var(--danger); }
+.theme.t-mixed { color: var(--text-secondary); }
+.scanbucket { margin: 0 0 14px; }
+.scanbucket h4 { font-size: 13px; margin: 0 0 6px; font-weight: 600; }
+.scanrow { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.scanrow:last-child { border-bottom: none; }
+.scanrow .px { flex: 1; color: var(--text-secondary); }
+
 /* Collapsed rows: tight one-liner (ticker list) */
 .row-collapsed { padding: 7px 12px; }
 .row .chev { color: var(--text-secondary); font-size: 12px; }

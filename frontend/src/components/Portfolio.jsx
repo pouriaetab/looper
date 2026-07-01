@@ -1,5 +1,99 @@
-import React, { useState, useEffect } from 'react'
-import { getCandidates, getWatchlist, addToWatchlist, removeFromWatchlist } from '../api'
+import React, { useState, useEffect, useRef } from 'react'
+import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus } from '../api'
+
+// ---- Deep Opportunity Scan panel (whole-market, with progress + themes) ----
+function OpportunityScan({ onAddToWatchlist }) {
+  const [st, setSt] = useState(null)
+  const [elapsed, setElapsed] = useState(0)
+  const pollRef = useRef(null)
+
+  const load = () => scanStatus().then(setSt).catch(() => {})
+  useEffect(() => { load() }, [])
+
+  // poll while a scan is running
+  useEffect(() => {
+    if (st?.running && !pollRef.current) {
+      pollRef.current = setInterval(load, 1500)
+    } else if (!st?.running && pollRef.current) {
+      clearInterval(pollRef.current); pollRef.current = null
+    }
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [st?.running])
+
+  // elapsed timer
+  useEffect(() => {
+    if (!st?.running || !st?.started) return
+    const start = new Date(st.started).getTime()
+    const id = setInterval(() => setElapsed(Math.round((Date.now() - start) / 1000)), 1000)
+    return () => clearInterval(id)
+  }, [st?.running, st?.started])
+
+  const run = async () => { try { await startScan(); await load() } catch { /* ignore */ } }
+
+  const results = st?.results || []
+  const themes = st?.themes || []
+  const pct = st?.total ? Math.round((st.progress / st.total) * 100) : 8
+  const buckets = [
+    ['buy-low', '↓ Buy-low — oversold pullbacks (your entries)'],
+    ['momentum', '↑ Momentum — breaking out on volume (hot names)'],
+    ['overbought', '⚠ Overbought — extended (take profit / don’t chase)'],
+  ]
+
+  return (
+    <div>
+      <div className="scanbar">
+        <button onClick={run} disabled={st?.running}>{st?.running ? 'Scanning…' : '⟳ Run deep scan'}</button>
+        {st?.running && (
+          <span className="scanprog">
+            <span className="pbar"><span className="pfill" style={{ width: `${pct}%` }} /></span>
+            {st.stage === 'snapshot' ? 'pulling market snapshot…' : `analyzing ${st.progress}/${st.total}`} · {elapsed}s
+          </span>
+        )}
+        {!st?.running && st?.finished && (
+          <span className="muted small">
+            scanned {(st.scanned_universe || 0).toLocaleString()} stocks · {new Date(st.finished).toLocaleString()}
+          </span>
+        )}
+        {st?.error && <span className="error small" style={{ margin: 0, padding: '2px 8px' }}>scan error: {st.error}</span>}
+      </div>
+
+      {themes.length > 0 && (
+        <div className="themes">
+          <span className="muted small" style={{ marginRight: 4 }}>Sector heat:</span>
+          {themes.map(t => (
+            <span key={t.theme} className={`theme t-${t.state}`} title={`${t.up}/${t.count} up today`}>
+              {t.theme} <b>{t.avg_chg >= 0 ? '+' : ''}{t.avg_chg}%</b>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {buckets.map(([b, label]) => {
+        const rows = results.filter(r => r.bucket === b)
+        if (!rows.length) return null
+        return (
+          <div key={b} className="scanbucket">
+            <h4>{label} <span className="muted">({rows.length})</span></h4>
+            {rows.map(r => (
+              <div className="scanrow" key={r.ticker}>
+                <span className="tkr">{r.ticker}</span>
+                <span className="px">
+                  ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
+                  {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
+                </span>
+                <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
+              </div>
+            ))}
+          </div>
+        )
+      })}
+
+      {!st?.running && results.length === 0 && (
+        <p className="muted">No scan yet — click “Run deep scan”. It analyzes the whole market (~30–60s).</p>
+      )}
+    </div>
+  )
+}
 
 const COLORS = {
   'SELL SIGNAL': '#C13B2B', 'WATCH': '#B07515', 'RE-ENTRY ZONE': '#1B7F49',
@@ -135,9 +229,7 @@ function WatchlistRow({ w, onRemove, onOpen }) {
 }
 
 export default function Portfolio({ data, onOpen }) {
-  const [candidates, setCandidates] = useState(null)   // null = not loaded yet
   const [watchlist, setWatchlist] = useState([])
-  const [loadingCandidates, setLoadingCandidates] = useState(false)
   const [dismissedErrors, setDismissedErrors] = useState(new Set())
   const [manualTicker, setManualTicker] = useState('')
   const [wlMsg, setWlMsg] = useState(null)
@@ -167,19 +259,9 @@ export default function Portfolio({ data, onOpen }) {
   const visibleSells = sells.filter(r => !hidden.has(r.ticker))
   const visibleBuys = buys.filter(r => !hidden.has(r.ticker))
 
-  // Watchlist is light — load it on mount. Scanner is heavy (scans ~32 tickers),
-  // so only run it the first time you open that section.
   useEffect(() => {
     getWatchlist().then(d => setWatchlist(d.watchlist || [])).catch(() => setWatchlist([]))
   }, [])
-
-  useEffect(() => {
-    if (showScanner && candidates === null && !loadingCandidates) {
-      setLoadingCandidates(true)
-      getCandidates(20).then(d => setCandidates(d.candidates || []))
-        .catch(() => setCandidates([])).finally(() => setLoadingCandidates(false))
-    }
-  }, [showScanner, candidates, loadingCandidates])
 
   const handleAddToWatchlist = async (ticker) => {
     try {
@@ -291,26 +373,16 @@ export default function Portfolio({ data, onOpen }) {
         </section>
       </div>
 
-      {/* Phase 4: Candidate Scanner — collapsible to keep the page short */}
+      {/* Deep Opportunity Scan — collapsible */}
       <section className="collapse">
         <button className="secthead" onClick={() => setShowScanner(v => !v)}>
-          <span>🔍 Candidate Scanner</span>
+          <span>🔍 Opportunity Scan</span>
           <span className="chev">{showScanner ? '▾' : '▸'}</span>
         </button>
         {showScanner && (
           <div className="sectbody">
-            <p className="sub">Today's biggest market movers — big drops to buy low, big pops to take profit (fresh names daily)</p>
-            {loadingCandidates ? (
-              <p className="muted">Scanning the universe… (this takes a moment)</p>
-            ) : (candidates && candidates.length > 0) ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '12px' }}>
-                {candidates.map(c => (
-                  <CandidateRow key={c.ticker} c={c} onAddToWatchlist={handleAddToWatchlist} />
-                ))}
-              </div>
-            ) : (
-              <p className="muted">No oversold or overbought names in the scan right now.</p>
-            )}
+            <p className="sub">Deep whole-market scan — oversold buy-low pullbacks, hot momentum names, and sector-theme heat (quantum, semis, robotics…). Takes ~30–60s with a progress bar.</p>
+            <OpportunityScan onAddToWatchlist={handleAddToWatchlist} />
           </div>
         )}
       </section>

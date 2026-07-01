@@ -29,6 +29,13 @@ export const sellStock = (ticker, body) =>
     body: JSON.stringify(body),
   }).then(j)
 
+export const recordReserveUse = (ticker, amount) =>
+  fetch(`/api/stocks/${ticker}/reserve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount }),
+  }).then(j)
+
 export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
 

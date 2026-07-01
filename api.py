@@ -153,6 +153,19 @@ def patch(ticker: str, body: StockPatch):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+class ReserveIn(BaseModel):
+    amount: float
+
+
+@app.post("/api/stocks/{ticker}/reserve")
+def reserve_use(ticker: str, body: ReserveIn):
+    """Record that some of this position was funded from the re-entry reserve."""
+    try:
+        return engine.record_reserve_use(ticker, body.amount)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.post("/api/stocks/{ticker}/sell")
 def sell(ticker: str, body: SellIn):
     """Record a sale (date/time auto-stamped). Full sell removes the stock;

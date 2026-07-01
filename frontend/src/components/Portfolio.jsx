@@ -54,8 +54,8 @@ function OpportunityScan({ onAddToWatchlist }) {
             scanned {(st.scanned_universe || 0).toLocaleString()} stocks · {new Date(st.finished).toLocaleString()}
           </span>
         )}
-        {st?.error && <span className="error small" style={{ margin: 0, padding: '2px 8px' }}>scan error: {st.error}</span>}
       </div>
+      {st?.error && <div className="error" style={{ margin: '0 0 12px' }}>Scan error: {st.error}</div>}
 
       {themes.length > 0 && (
         <div className="themes">
@@ -88,8 +88,10 @@ function OpportunityScan({ onAddToWatchlist }) {
         )
       })}
 
-      {!st?.running && results.length === 0 && (
-        <p className="muted">No scan yet — click “Run deep scan”. It analyzes the whole market (~30–60s).</p>
+      {!st?.running && results.length === 0 && !st?.error && (
+        st?.finished
+          ? <p className="muted">Scan found 0 candidates (scanned {(st.scanned_universe || 0).toLocaleString()} names). Market data can be thin outside trading hours — try again during market hours.</p>
+          : <p className="muted">No scan yet — click “Run deep scan”. It analyzes the whole market (~30–60s).</p>
       )}
     </div>
   )

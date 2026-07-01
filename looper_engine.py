@@ -90,9 +90,9 @@ def _last_price(ticker: str):
 # --------------------------------------------------------------------------- #
 # API helpers
 # --------------------------------------------------------------------------- #
-def _get(path, params=None):
+def _get(path, params=None, timeout=20):
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    resp = requests.get(BASE + path, headers=headers, params=params or {}, timeout=20)
+    resp = requests.get(BASE + path, headers=headers, params=params or {}, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
@@ -688,7 +688,7 @@ def portfolio_tally():
     # Re-entry reserve is a running pool: sales ADD to it, reserve-funded buys
     # DRAW from it. Remaining = added − used (can't go below 0).
     reserve_added = _sum("reentry_reserve")
-    reserve_used = _sum("reserve_used", actions=("buy", "reentry"))
+    reserve_used = _sum("reserve_used", actions=("buy", "reentry", "reserve_use"))
     reserve_remaining = round(max(reserve_added - reserve_used, 0.0), 2)
 
     return {
@@ -738,6 +738,21 @@ def remove_stock(ticker):
     cfg["stocks"] = [s for s in cfg.get("stocks", []) if s["ticker"].upper() != ticker]
     save_config(cfg)
     return cfg["stocks"]
+
+
+def record_reserve_use(ticker, amount, when=None):
+    """Manually record that `amount` of a buy was funded from the re-entry reserve
+    (for old/forgotten entries). Draws the reserve down without changing shares."""
+    ticker = ticker.strip().upper()
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("Amount must be greater than 0.")
+    ts, day = _now_parts(when)
+    _append_ledger({
+        "timestamp": ts, "date": day, "action": "reserve_use", "ticker": ticker,
+        "reserve_used": round(amount, 4), "note": "manual: funded from re-entry reserve",
+    })
+    return {"ticker": ticker, "reserve_used": round(amount, 4)}
 
 
 def _stock_cfg(cfg, stock):
@@ -993,19 +1008,48 @@ _SCAN = {
 _SCAN_LOCK = threading.Lock()
 
 
+# Common leveraged / inverse ETF tickers to exclude outright (backstop; the ticker
+# 'type' check below catches the rest). We want the real underlying stock, not its
+# 2x/3x or single-stock leveraged ETF wrappers.
+LEVERAGED_ETFS = {
+    "TQQQ", "SQQQ", "SOXL", "SOXS", "TNA", "TZA", "UPRO", "SPXU", "SPXL", "SPXS",
+    "UDOW", "SDOW", "TMF", "TMV", "LABU", "LABD", "FAS", "FAZ", "YINN", "YANG",
+    "NVDL", "NVDU", "NVDS", "NVDQ", "TSLL", "TSLQ", "TSLS", "TSLT", "CONL", "MSTX",
+    "MSTU", "MSTZ", "AMDL", "AMUU", "GGLL", "AAPU", "AAPD", "METU", "AMZU", "PLTU",
+    "CRWL", "CWVX", "CRWG", "BITX", "ETHU", "USD", "SSO", "QLD", "DDM", "SVXY", "UVXY",
+}
+# Keep only real equities (common stock / ADRs); drop ETFs, ETNs, funds.
+_COMMON_TYPES = {"CS", "ADRC", "ADR", "ADRP"}
+
+
+def fetch_ticker_type(sym):
+    """The security type (CS = common stock, ETF, ADRC, …) from ticker reference."""
+    try:
+        data = _get(f"/v3/reference/tickers/{sym}", {})
+        return (data.get("results") or {}).get("type")
+    except Exception:        # noqa: BLE001
+        return None
+
+
 def fetch_full_snapshot():
-    """One call: every US ticker's latest daily bar (price, %chg, volume)."""
-    data = _get("/v2/snapshot/locale/us/markets/stocks/tickers", {})
+    """One call: every US ticker's latest daily bar (price, %chg, volume).
+    Uses a long timeout — the response covers 10,000+ tickers."""
+    data = _get("/v2/snapshot/locale/us/markets/stocks/tickers", {}, timeout=60)
     out = {}
     for t in data.get("tickers", []) or []:
         sym = t.get("ticker")
         day = t.get("day") or {}
         prev = t.get("prevDay") or {}
+        # Off-hours the day bar can be empty — fall back to the previous day.
         price = day.get("c") or prev.get("c")
+        vol = day.get("v") or 0
+        prev_vol = prev.get("v") or 0
+        chg = t.get("todaysChangePerc")
+        if chg is None and price and prev.get("c"):
+            chg = (price / prev["c"] - 1) * 100
         if not sym or not price:
             continue
-        out[sym] = {"price": price, "chg": t.get("todaysChangePerc"),
-                    "vol": day.get("v") or 0, "prev_vol": prev.get("v") or 0}
+        out[sym] = {"price": price, "chg": chg, "vol": vol, "prev_vol": prev_vol}
     return out
 
 
@@ -1026,10 +1070,13 @@ def theme_momentum(snap):
     return themes
 
 
-def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=3_000_000):
+def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=400_000):
     """Background job: full-market snapshot -> liquidity filter -> deep RSI/EMA on the
     most interesting names -> classified opportunities + theme momentum. Updates _SCAN
-    so the UI can show a progress bar. Persists to data/scan.json."""
+    so the UI can show a progress bar. Persists to data/scan.json.
+
+    Excludes leveraged/inverse ETFs and non-common-stock securities (we want the real
+    underlying, e.g. CRWV, not its 2x wrapper), and low-volume names."""
     with _SCAN_LOCK:
         _SCAN.update(running=True, stage="snapshot", progress=0, total=0,
                      started=dt.datetime.now().isoformat(timespec="seconds"),
@@ -1037,25 +1084,39 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=3_000_000):
     try:
         snap = fetch_full_snapshot()
         _SCAN["scanned_universe"] = len(snap)
+        if not snap:
+            raise RuntimeError("Market snapshot came back empty. Snapshot data repopulates "
+                               "around 4:00 AM ET — try again during/near market hours.")
 
         # Rank the whole liquid market for "something is happening": magnitude of the
-        # day's move amplified by a volume surge vs. the prior day.
+        # day's move amplified by a volume surge vs. the prior day. Volume falls back
+        # to the prior day so we still find names outside of regular trading hours.
         ranked = []
         for sym, d in snap.items():
-            price, chg, vol = d["price"], d.get("chg"), d["vol"]
-            if chg is None or price < min_price or price * vol < min_dollar_vol:
+            price, chg = d["price"], d.get("chg")
+            vol = max(d.get("vol") or 0, d.get("prev_vol") or 0)
+            if chg is None or price < min_price or vol < min_volume or price * vol < min_dollar_vol:
                 continue
-            vsurge = (vol / d["prev_vol"]) if d["prev_vol"] else 1.0
+            if sym in LEVERAGED_ETFS:            # skip obvious leveraged/inverse ETFs
+                continue
+            vsurge = (d["vol"] / d["prev_vol"]) if (d.get("vol") and d.get("prev_vol")) else 1.0
             interest = abs(chg) * (1 + min(vsurge, 5) / 5)
             ranked.append((interest, sym, price, chg, round(vsurge, 2)))
         ranked.sort(reverse=True)
-        top = ranked[:top_n]
 
         with _SCAN_LOCK:
-            _SCAN.update(stage="analyzing", total=len(top), progress=0)
+            _SCAN.update(stage="analyzing", total=top_n, progress=0)
 
+        # Walk the ranked list, keeping only real common stocks (drops ETFs/leveraged),
+        # until we have top_n analyzed or we've checked a sane maximum.
         results = []
-        for i, (interest, sym, price, chg, vsurge) in enumerate(top, 1):
+        checked = 0
+        for (interest, sym, price, chg, vsurge) in ranked:
+            if len(results) >= top_n or checked >= top_n * 4:
+                break
+            checked += 1
+            if fetch_ticker_type(sym) not in _COMMON_TYPES:
+                continue                          # ETF / ETN / fund — skip
             try:
                 rsi_series = fetch_rsi_series(sym, 14, limit=1, timespan="day")
                 rsi = rsi_series[0] if rsi_series else None
@@ -1082,7 +1143,7 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=3_000_000):
                 "score": round(interest, 1),
             })
             with _SCAN_LOCK:
-                _SCAN["progress"] = i
+                _SCAN["progress"] = len(results)
 
         # nice ordering: buy-low first (your entries), then momentum, then overbought
         order = {"buy-low": 0, "momentum": 1, "overbought": 2, "watch": 3}

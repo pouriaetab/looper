@@ -1321,7 +1321,31 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
         # nice ordering: buy-low first (your entries), then momentum, then overbought
         order = {"buy-low": 0, "momentum": 1, "overbought": 2, "watch": 3}
         results.sort(key=lambda r: (order.get(r["bucket"], 9), -r["score"]))
+
+        # Sector heat + the constituent names behind each theme (so the UI can expand a
+        # sector into its stocks). Reuse already-analyzed rows; fetch RSI for the rest.
+        with _SCAN_LOCK:
+            _SCAN.update(stage="themes")
+        analyzed = {r["ticker"]: r for r in results}
+
+        def _theme_row(sym):
+            if sym in analyzed:
+                return analyzed[sym]
+            d = snap[sym]
+            vs = (d["vol"] / d["prev_vol"]) if (d.get("vol") and d.get("prev_vol")) else 1.0
+            row = _deep_row(sym, d["price"], d.get("chg"), round(vs, 2))
+            analyzed[sym] = row
+            return row
+
         themes = theme_momentum(snap)
+        keep = ("ticker", "price", "change_pct", "rsi", "bucket", "uptrend")
+        for th in themes:
+            stocks = []
+            for sym in THEMES.get(th["theme"], []):
+                if sym in snap:
+                    r = _theme_row(sym)
+                    stocks.append({k: r[k] for k in keep})
+            th["stocks"] = stocks
 
         DATA_DIR.mkdir(exist_ok=True)
         payload = {"as_of": dt.datetime.now().isoformat(timespec="seconds"),

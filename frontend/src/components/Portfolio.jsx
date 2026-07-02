@@ -1,10 +1,72 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus } from '../api'
 
+// RSI condition read, reused across every scan subsection and sector drill-down.
+const RSI_TAG = (rsi) => rsi == null ? { text: 'no data', cls: 'r-mid' }
+  : rsi <= 40 ? { text: 'oversold', cls: 'r-low' }
+  : rsi >= 68 ? { text: 'overbought', cls: 'r-high' }
+  : { text: 'neutral', cls: 'r-mid' }
+
+const SCAN_SORTS = [
+  ['default', 'Sort: default'],
+  ['rsi', 'RSI (oversold first)'],
+  ['price', 'Price (high→low)'],
+  ['chg', 'Change % (high→low)'],
+]
+
+// Reusable scan subsection: title with inline show/hide + sort + type filter, then rows.
+// This is the shared pattern for popular names, each bucket, and sector drill-downs.
+function ScanSection({ title, rows, onAddToWatchlist, defaultSort = 'default' }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const [sort, setSort] = useState(defaultSort)
+  const [type, setType] = useState('all')   // all | oversold | neutral | overbought
+
+  let list = type === 'all' ? rows : rows.filter(r => RSI_TAG(r.rsi).text === type)
+  if (sort === 'rsi') list = [...list].sort((a, b) => (a.rsi ?? 999) - (b.rsi ?? 999))
+  else if (sort === 'price') list = [...list].sort((a, b) => b.price - a.price)
+  else if (sort === 'chg') list = [...list].sort((a, b) => b.change_pct - a.change_pct)
+
+  return (
+    <div className="scanbucket">
+      <div className="scanhead">
+        <h4>{title} <span className="muted">({rows.length})</span></h4>
+        <div className="scanctl">
+          <select value={type} onChange={e => setType(e.target.value)} title="Filter by RSI condition">
+            <option value="all">Type: all</option>
+            <option value="oversold">Oversold</option>
+            <option value="neutral">Neutral</option>
+            <option value="overbought">Overbought</option>
+          </select>
+          <select value={sort} onChange={e => setSort(e.target.value)} title="Sort these names">
+            {SCAN_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+          <button className="link" onClick={() => setCollapsed(c => !c)}>{collapsed ? 'show' : 'hide'}</button>
+        </div>
+      </div>
+      {!collapsed && list.map(r => {
+        const tag = RSI_TAG(r.rsi)
+        return (
+          <div className="scanrow" key={r.ticker}>
+            <span className="tkr">{r.ticker}</span>
+            <span className="px">
+              ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
+              {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
+              <span className={`rtag ${tag.cls}`}>{tag.text}</span>
+            </span>
+            <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
+          </div>
+        )
+      })}
+      {!collapsed && list.length === 0 && <p className="muted small">None match this filter.</p>}
+    </div>
+  )
+}
+
 // ---- Deep Opportunity Scan panel (whole-market, with progress + themes) ----
 function OpportunityScan({ onAddToWatchlist }) {
   const [st, setSt] = useState(null)
   const [elapsed, setElapsed] = useState(0)
+  const [openTheme, setOpenTheme] = useState(null)   // sector drilled into
   const pollRef = useRef(null)
 
   const load = () => scanStatus().then(setSt).catch(() => {})
@@ -46,7 +108,9 @@ function OpportunityScan({ onAddToWatchlist }) {
         {st?.running && (
           <span className="scanprog">
             <span className="pbar"><span className="pfill" style={{ width: `${pct}%` }} /></span>
-            {st.stage === 'snapshot' ? 'pulling market snapshot…' : `analyzing ${st.progress}/${st.total}`} · {elapsed}s
+            {st.stage === 'snapshot' ? 'pulling market snapshot…'
+              : st.stage === 'themes' ? 'checking sector leaders…'
+              : `analyzing ${st.progress}/${st.total}`} · {elapsed}s
           </span>
         )}
         {!st?.running && st?.finished && (
@@ -57,61 +121,45 @@ function OpportunityScan({ onAddToWatchlist }) {
       </div>
       {st?.error && <div className="error" style={{ margin: '0 0 12px' }}>Scan error: {st.error}</div>}
 
-      {themes.length > 0 && (
-        <div className="themes">
-          <span className="muted small" style={{ marginRight: 4 }}>Sector heat:</span>
-          {themes.map(t => (
-            <span key={t.theme} className={`theme t-${t.state}`} title={`${t.up}/${t.count} up today`}>
-              {t.theme} <b>{t.avg_chg >= 0 ? '+' : ''}{t.avg_chg}%</b>
-            </span>
-          ))}
-        </div>
+      {(results.length > 0 || themes.length > 0) && (
+        <p className="muted small scanlegend">
+          RSI = momentum (≤40 oversold · ≥68 overbought). % = today’s price change vs yesterday’s close.
+        </p>
       )}
 
-      {(() => {
-        const pop = results.filter(r => r.popular)
-        if (!pop.length) return null
-        const read = (r) => r.rsi == null ? 'no data'
-          : r.rsi <= 40 ? 'oversold' : r.rsi >= 68 ? 'overbought' : 'neutral'
-        const cls = (r) => r.rsi == null ? '' : r.rsi <= 40 ? 'r-low' : r.rsi >= 68 ? 'r-high' : 'r-mid'
-        // most oversold first, then by RSI ascending
-        const sorted = [...pop].sort((a, b) => (a.rsi ?? 999) - (b.rsi ?? 999))
+      {themes.length > 0 && (() => {
+        const openT = themes.find(t => t.theme === openTheme)
         return (
-          <div className="scanbucket">
-            <h4>★ Popular names — at a glance <span className="muted">({pop.length})</span></h4>
-            {sorted.map(r => (
-              <div className="scanrow" key={r.ticker}>
-                <span className="tkr">{r.ticker}</span>
-                <span className="px">
-                  ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
-                  {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
-                  <span className={`rtag ${cls(r)}`}>{read(r)}</span>
-                </span>
-                <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="themes">
+              <span className="muted small" style={{ marginRight: 4 }}>Sector heat:</span>
+              {themes.map(t => (
+                <button key={t.theme}
+                        className={`theme t-${t.state} ${openTheme === t.theme ? 'sel' : ''}`}
+                        title={`${t.up}/${t.count} up today — click to see the names`}
+                        onClick={() => setOpenTheme(openTheme === t.theme ? null : t.theme)}>
+                  {t.theme} <b>{t.avg_chg >= 0 ? '+' : ''}{t.avg_chg}%</b>
+                </button>
+              ))}
+            </div>
+            {openT && (openT.stocks?.length
+              ? <ScanSection title={`${openT.theme} — sector names`} rows={openT.stocks}
+                             onAddToWatchlist={onAddToWatchlist} defaultSort="rsi" />
+              : <p className="muted small">No names to show for {openT.theme} in this scan.</p>)}
+          </>
         )
       })()}
+
+      {results.filter(r => r.popular).length > 0 && (
+        <ScanSection title="★ Popular names — at a glance"
+                     rows={results.filter(r => r.popular)}
+                     onAddToWatchlist={onAddToWatchlist} defaultSort="rsi" />
+      )}
 
       {buckets.map(([b, label]) => {
         const rows = results.filter(r => r.bucket === b && !r.popular)
         if (!rows.length) return null
-        return (
-          <div key={b} className="scanbucket">
-            <h4>{label} <span className="muted">({rows.length})</span></h4>
-            {rows.map(r => (
-              <div className="scanrow" key={r.ticker}>
-                <span className="tkr">{r.ticker}</span>
-                <span className="px">
-                  ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
-                  {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
-                </span>
-                <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
-              </div>
-            ))}
-          </div>
-        )
+        return <ScanSection key={b} title={label} rows={rows} onAddToWatchlist={onAddToWatchlist} />
       })}
 
       {!st?.running && results.length === 0 && !st?.error && (

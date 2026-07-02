@@ -160,10 +160,10 @@ function LedgerTable({ trips, field, onEdited }) {
           <option value="all">Ticker: all</option>
           {tickers.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
-        <select value={fStatus} onChange={e => setFStatus(e.target.value)}>
+        <select value={fStatus} onChange={e => setFStatus(e.target.value)} title="closed = a completed buy→sell round-trip; open = still holding">
           <option value="all">Status: all</option>
-          <option value="closed">closed (buy→sell)</option>
-          <option value="open">open (holding)</option>
+          <option value="closed">Closed</option>
+          <option value="open">Open</option>
         </select>
         {(fTicker !== 'all' || fStatus !== 'all') && (
           <button className="link" onClick={() => { setFTicker('all'); setFStatus('all') }}>clear</button>

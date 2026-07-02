@@ -144,29 +144,86 @@ function VisBar({ list, hidden, onToggle, onShowAll, onHideAll }) {
   )
 }
 
+// Turn the raw signal + your position into a plain-English hold / sell / add / buy-back
+// steer, shown right on the box. Decision support, not advice — uses only your entry,
+// the current price, RSI and the analyst target.
+function decide(r) {
+  const pos = r.position || {}
+  const held = r.side === 'sell'
+  const h = r.headline || ''
+  const rsi = Math.round(r.rsi)
+  if (held) {
+    const entry = pos.entry_price
+    const gp = entry ? (r.price / entry - 1) * 100 : null
+    const upside = r.analyst_target ? (r.analyst_target / r.price - 1) * 100 : null
+    if (h.startsWith('SELL'))
+      return { label: gp != null && gp >= 0 ? 'Sell — take profit' : 'Sell signal', tone: 'danger',
+        tip: gp != null
+          ? (gp >= 0 ? `Exit signals firing while you're up ${gp.toFixed(0)}% — consider locking in the gain.`
+                     : `Sell signals while down ${Math.abs(gp).toFixed(0)}% — reassess the thesis or cut the loss.`)
+          : 'Sell signals are firing — consider taking profit.' }
+    if (h === 'WATCH')
+      return { label: 'Trim / tighten', tone: 'warn',
+        tip: `Getting toppy (RSI ${rsi}) — consider trimming some or tightening your stop.` }
+    if (gp != null && gp <= -8 && r.rsi <= 40)
+      return { label: 'Hold / add', tone: 'hold',
+        tip: `Down ${Math.abs(gp).toFixed(0)}% and oversold${upside ? `, ~${upside.toFixed(0)}% to target` : ''} — hold, or add if conviction is high.` }
+    return { label: 'Hold', tone: 'hold', tip: r.top_reason || 'Trend intact — hold.' }
+  }
+  const last = pos.last_sell_price
+  const vs = last ? (r.price / last - 1) * 100 : null
+  if (h.startsWith('RE-ENTRY ZONE'))
+    return { label: 'Buy back', tone: 'good',
+      tip: last ? `Now ${vs <= 0 ? `${Math.abs(vs).toFixed(0)}% below` : `${vs.toFixed(0)}% above`} your $${last} exit — re-entry zone reached.` : 'Re-entry zone reached — consider buying back.' }
+  if (h.includes('WATCH'))
+    return { label: 'Almost — get ready', tone: 'warn', tip: `Approaching your re-entry zone (RSI ${rsi}).` }
+  return { label: 'Wait', tone: 'muted',
+    tip: last ? `Sold at $${last}; now $${r.price.toFixed(2)} — not cheap enough yet.` : 'Waiting for a better level.' }
+}
+
 function Row({ r, onOpen, open, onToggle }) {
-  const gain = r.position?.entry_price ? (r.price / r.position.entry_price - 1) * 100 : null
-  const urgencyLabel = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
+  const pos = r.position || {}
+  const held = r.side === 'sell'
+  const entry = pos.entry_price
+  const shares = pos.shares
+  const gp = entry ? (r.price / entry - 1) * 100 : null
+  const gAbs = (entry && shares) ? (r.price - entry) * shares : null
+  const last = pos.last_sell_price
+  const vs = last ? (r.price / last - 1) * 100 : null
+  const d = decide(r)
+  const urg = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
+
+  const plText = gAbs != null
+    ? `${gAbs >= 0 ? '+' : '-'}$${Math.abs(gAbs).toFixed(2)} (${gp >= 0 ? '+' : '-'}${Math.abs(gp).toFixed(0)}%)`
+    : gp != null ? `${gp >= 0 ? '+' : '-'}${Math.abs(gp).toFixed(0)}%` : null
 
   return (
-    <div className={`row ${open ? '' : 'row-collapsed'}`}>
+    <div className={`row t-${d.tone} ${open ? 'is-open' : ''}`}>
       <div className="rowmain" onClick={onToggle} style={{ cursor: 'pointer' }}>
         <span className="chev">{open ? '▾' : '▸'}</span>
-        <span style={{ fontSize: '15px' }}>{urgencyLabel}</span>
+        <span className="urg">{urg}</span>
         <span className="badge" style={{ background: COLORS[r.headline] || '#C8643F' }}>
           {r.headline.split(' ')[0]}
         </span>
         <span className="tkr">{r.ticker}</span>
-        <span className="px">
-          ${r.price.toFixed(2)}{gain != null && ` (${gain >= 0 ? '+' : ''}${gain.toFixed(0)}%)`}
+        <span className="px">${r.price.toFixed(2)}</span>
+        <span className="rowright">
+          {held && plText && <span className={`pl ${gp >= 0 ? 'pos' : 'neg'}`}>{plText}</span>}
+          {!held && vs != null && (
+            <span className={`exit ${vs <= 0 ? 'pos' : 'neg'}`}>{vs <= 0 ? '' : '+'}{vs.toFixed(0)}% vs exit</span>
+          )}
+          <span className={`decis t-${d.tone}`}>{d.label}</span>
         </span>
-        {open && <span className="reason">{r.top_reason}</span>}
-        {open && (
-          <button className="open" onClick={(e) => { e.stopPropagation(); onOpen(r.ticker) }}>
-            Analyze ▸
-          </button>
-        )}
       </div>
+
+      <div className="rowsub">
+        <span className="tip">{d.tip}</span>
+        <span className="metric">
+          RSI {Math.round(r.rsi)}
+          {held && entry ? ` · in @ $${entry.toFixed(2)}` : (!held && last ? ` · out @ $${last}` : '')}
+        </span>
+      </div>
+
       {r.alert && (
         <div className={`alert-box lvl-${r.alert.level}`}>
           <strong>⚑ {r.alert.title}</strong>
@@ -175,6 +232,7 @@ function Row({ r, onOpen, open, onToggle }) {
           <div className="asug">{r.alert.suggestion}</div>
         </div>
       )}
+
       {open && (
         <div className="rowdetail">
           <strong>Signals:</strong> RSI {r.rsi.toFixed(0)} · EMA20 ${r.ema_short.toFixed(2)} · EMA50 ${r.ema_long.toFixed(2)}<br/>
@@ -185,6 +243,9 @@ function Row({ r, onOpen, open, onToggle }) {
               ⚠ limited price history — indicators are approximate.
             </span>
           )}
+          <button className="open" onClick={(e) => { e.stopPropagation(); onOpen(r.ticker) }} style={{ marginTop: '8px' }}>
+            Full analysis ▸
+          </button>
         </div>
       )}
     </div>

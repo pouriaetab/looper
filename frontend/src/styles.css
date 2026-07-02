@@ -128,18 +128,26 @@ input:focus, select:focus {
 
 /* Stock rows */
 .row {
-  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
-  margin-bottom: 12px; background: var(--surface);
-  transition: all 0.15s ease;
+  position: relative; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 11px 14px 11px 18px; margin-bottom: 10px; background: var(--surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   box-shadow: var(--shadow-sm);
 }
-
-.row:hover { border-color: var(--text-secondary); box-shadow: var(--shadow-md); }
-
-.rowmain {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  row-gap: 6px;
+/* colored accent stripe keyed to the decision tone — the "slick" cue */
+.row::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  background: var(--text-secondary);
 }
+.row.t-danger::before { background: var(--danger); }
+.row.t-warn::before   { background: var(--warning); }
+.row.t-good::before   { background: var(--success); }
+.row.t-hold::before   { background: var(--accent); }
+.row.t-muted::before  { background: var(--text-secondary); }
+.row:hover { border-color: var(--text-secondary); box-shadow: var(--shadow-md); transform: translateY(-1px); }
+.row.is-open { box-shadow: var(--shadow-md); }
+
+.rowmain { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; row-gap: 6px; }
 
 .badge {
   color: #fff; font-size: 11px; font-weight: 700; padding: 4px 10px;
@@ -147,15 +155,37 @@ input:focus, select:focus {
   text-transform: uppercase; letter-spacing: 0.3px;
 }
 
-.tkr { font-weight: 600; min-width: 50px; }
-
-.px { color: var(--text-secondary); font-size: 13px; font-weight: 500; }
-
+.urg { font-size: 14px; }
+.tkr { font-weight: 700; min-width: 46px; letter-spacing: 0.2px; }
+.px { color: var(--text); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .reason { flex: 1 1 160px; font-size: 13px; color: var(--text-secondary); }
 
-.open { margin-left: auto; flex-shrink: 0; }
+/* right-aligned cluster: P/L + the decision chip */
+.rowright { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.pl { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
+.pl.pos, .exit.pos { color: var(--success); }
+.pl.neg { color: var(--danger); }
+.exit { font-size: 12px; font-weight: 600; }
+.exit.neg { color: var(--text-secondary); }
+.decis {
+  font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+}
+.decis.t-danger { background: rgba(193, 59, 43, 0.12); color: var(--danger); }
+.decis.t-warn   { background: rgba(176, 117, 21, 0.14); color: var(--warning); }
+.decis.t-good   { background: rgba(27, 127, 73, 0.14); color: var(--success); }
+.decis.t-hold   { background: rgba(200, 100, 63, 0.12); color: var(--accent); }
+.decis.t-muted  { background: rgba(118, 116, 108, 0.14); color: var(--text-secondary); }
 
-.chev { padding: 6px 8px; border: none; background: none; color: var(--text-secondary); cursor: pointer; }
+/* always-visible one-liner: the plain-English steer + a key metric */
+.rowsub {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin-top: 6px; padding-left: 30px; font-size: 12.5px; line-height: 1.4;
+}
+.rowsub .tip { color: var(--text); }
+.rowsub .metric { color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.open { flex-shrink: 0; }
+.chev { padding: 4px 4px; border: none; background: none; color: var(--text-secondary); cursor: pointer; }
 
 .rowdetail {
   margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border);

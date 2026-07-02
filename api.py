@@ -194,6 +194,13 @@ def ledger():
     return {"rows": engine.read_ledger()}
 
 
+@app.get("/api/ledger/paired")
+def ledger_paired():
+    """Round-trip view: each buy FIFO-paired with the sell that closed it (buy +
+    sell in one row). Raw rows stay the source of truth; each leg keeps its index."""
+    return {"trips": engine.paired_ledger()}
+
+
 @app.delete("/api/stocks/{ticker}")
 def delete(ticker: str):
     return {"stocks": engine.remove_stock(ticker)}

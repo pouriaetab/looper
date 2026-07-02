@@ -22,6 +22,7 @@ import csv
 import json
 import threading
 import datetime as dt
+from collections import defaultdict, deque
 from pathlib import Path
 
 import requests
@@ -109,6 +110,101 @@ def delete_ledger_row(index: int) -> dict:
     removed = rows.pop(index)
     _write_ledger(rows)
     return removed
+
+
+def _lnum(row, key):
+    """Parse a ledger cell as float, or None if blank/missing."""
+    v = row.get(key)
+    if v in (None, ""):
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def paired_ledger():
+    """Round-trip VIEW over the raw ledger: FIFO-match each ticker's sells against
+    its buys so a buy and the sell that closed it appear as ONE row (buy date/price
+    + sell date/price + realized + reserve). Rules:
+      • Open (unsold) buys show with the sell side blank.
+      • A legacy sell with no buy row (bought before the ledger existed) uses the
+        sell's own entry_price as the buy side.
+      • Each leg keeps its underlying ledger row index (buy_idx / sell_idx) so inline
+        edits go straight back to the correct RAW row — the raw ledger stays the
+        single source of truth (every buy and every sell is its own dated row).
+    Trips are returned most-recent-first (by the closing sell date, else the buy date).
+    """
+    indexed = [dict(r, _idx=i) for i, r in enumerate(read_ledger())]
+    by_ticker = defaultdict(list)
+    for r in indexed:
+        by_ticker[r.get("ticker", "")].append(r)
+
+    def _trip(tkr, shares, buy, sell):
+        buy_price = buy["price"] if buy else (_lnum(sell, "entry_price") if sell else None)
+        cost = (_lnum(buy["row"], "cost_basis") if (buy and buy["whole"]) else
+                (round(shares * buy_price, 4) if buy_price is not None else None))
+        sell_price = _lnum(sell, "price") if sell else None
+        proceeds = (_lnum(sell, "proceeds") if (sell and _lnum(sell, "proceeds") is not None)
+                    else (round(shares * sell_price, 4) if sell_price is not None else None))
+        realized = _lnum(sell, "realized_profit") if sell else None
+        if realized is None and cost is not None and proceeds is not None:
+            realized = round(proceeds - cost, 4)
+        buy_whole = (buy is None) or buy["whole"]
+        sell_whole = (sell is None) or (abs(shares - (_lnum(sell, "shares") or shares)) < 1e-9)
+        return {
+            "ticker": tkr,
+            "shares": round(shares, 6),
+            "buy_idx": buy["row"]["_idx"] if buy else None,
+            "buy_date": buy["row"]["date"] if buy else None,
+            "buy_price": round(buy_price, 4) if buy_price is not None else None,
+            "sell_idx": sell["_idx"] if sell else None,
+            "sell_date": sell["date"] if sell else None,
+            "sell_price": round(sell_price, 4) if sell_price is not None else None,
+            "cost_basis": cost,
+            "proceeds": proceeds,
+            "realized_profit": realized,
+            "net_profit_taken": _lnum(sell, "net_profit_taken") if sell else None,
+            "reentry_reserve": _lnum(sell, "reentry_reserve") if sell else None,
+            "reserve_used": (buy["row"].get("reserve_used") or None) if buy else None,
+            "open": sell is None,
+            # only 1:1 whole-lot trips map cleanly back to single rows for inline edit
+            "editable": buy_whole and sell_whole,
+            "sort_key": (sell["timestamp"] if sell else buy["row"]["timestamp"] if buy else ""),
+        }
+
+    trips = []
+    for tkr, rows in by_ticker.items():
+        rows.sort(key=lambda r: (r.get("timestamp") or r.get("date") or ""))
+        open_lots = deque()   # FIFO queue of open buy lots
+        for r in rows:
+            act = r.get("action")
+            shares = _lnum(r, "shares") or 0.0
+            if act in ("buy", "reentry"):
+                open_lots.append({"row": r, "left": shares, "orig": shares})
+            elif act == "sell":
+                remaining = shares
+                while remaining > 1e-9 and open_lots:
+                    lot = open_lots[0]
+                    take = min(lot["left"], remaining)
+                    buy = {"row": lot["row"], "price": _lnum(lot["row"], "price"),
+                           "whole": abs(take - lot["orig"]) < 1e-9}
+                    trips.append(_trip(tkr, take, buy, r))
+                    lot["left"] -= take
+                    remaining -= take
+                    if lot["left"] <= 1e-9:
+                        open_lots.popleft()
+                if remaining > 1e-9:                      # legacy sell, no buy row
+                    trips.append(_trip(tkr, remaining, None, r))
+        for lot in open_lots:                             # still-open positions
+            buy = {"row": lot["row"], "price": _lnum(lot["row"], "price"),
+                   "whole": abs(lot["left"] - lot["orig"]) < 1e-9}
+            trips.append(_trip(tkr, lot["left"], buy, None))
+
+    trips.sort(key=lambda t: t["sort_key"], reverse=True)
+    for t in trips:
+        t.pop("sort_key", None)
+    return trips
 
 
 def _now_parts(when=None):

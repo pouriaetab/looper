@@ -31,6 +31,7 @@ export const sellStock = (ticker, body) =>
 
 export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
+export const getPairedLedger = () => fetch('/api/ledger/paired').then(j)
 
 // Edit the ledger as a master file: fix a value in one row, or delete a row.
 export const updateLedgerRow = (index, fields) =>

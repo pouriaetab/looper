@@ -416,10 +416,20 @@ h2:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   color: var(--text); text-align: right;
 }
 .ledgerbar {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin: 0 0 10px; font-size: 12px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: nowrap;
+  margin: 0 0 8px; font-size: 11px; white-space: nowrap; overflow-x: auto;
 }
 .ledgerbar select {
-  font-size: 12px; padding: 3px 6px; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--surface); color: var(--text);
+  font-size: 11px; padding: 2px 4px; border: 1px solid var(--border);
+  border-radius: 5px; background: var(--surface); color: var(--text);
 }
+.ledgerbar .link { font-size: 11px; padding: 1px 3px; }
+
+/* Popular-names RSI read tag in the scanner */
+.rtag {
+  margin-left: 6px; padding: 1px 6px; border-radius: 10px;
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;
+}
+.rtag.r-low { background: rgba(27, 127, 73, 0.14); color: var(--success); }
+.rtag.r-mid { background: rgba(118, 116, 108, 0.14); color: var(--text-secondary); }
+.rtag.r-high { background: rgba(193, 59, 43, 0.14); color: var(--danger); }

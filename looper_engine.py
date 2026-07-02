@@ -1060,6 +1060,51 @@ LEVERAGED_ETFS = {
 # Keep only real equities (common stock / ADRs); drop ETFs, ETNs, funds.
 _COMMON_TYPES = {"CS", "ADRC", "ADR", "ADRP"}
 
+# Popular / widely-recognized names. These rarely have the day's *biggest* % move,
+# so the "what's moving" ranking almost never surfaces them — yet these are the
+# names you actually want a read on. We ALWAYS deep-analyze any of these that are
+# in the snapshot (bypassing the volume/liquidity floor) and put them in their own
+# "Popular names" section so you see NVDA, GOOGL, COIN, RKLB, etc. every scan.
+POPULAR = {
+    "NVDA", "AAPL", "MSFT", "GOOGL", "GOOG", "AMZN", "META", "TSLA", "AVGO", "AMD",
+    "NFLX", "COIN", "SHOP", "AFRM", "SNDK", "MU", "RKLB", "ASTS", "PYPL", "NOW",
+    "PLTR", "HOOD", "SOFI", "CRWV", "NBIS", "SMCI", "ARM", "TSM", "QCOM", "INTC",
+    "MRVL", "MSTR", "UBER", "ABNB", "DIS", "BA", "F", "SQ", "XYZ", "DKNG", "RBLX",
+    "SNAP", "PINS", "ROKU", "CVNA", "DELL", "CRM", "ORCL", "ADBE", "BABA", "RIVN",
+    "V", "MA", "JPM", "WMT", "COST", "GME", "LLY", "NKE", "OKLO", "IONQ", "RGTI",
+}
+
+
+def _classify_bucket(rsi, chg, vsurge):
+    if rsi is not None and rsi <= 40 and chg < 0:
+        return "buy-low"          # oversold pullback — potential entry
+    if rsi is not None and rsi >= 68 and chg > 0:
+        return "overbought"       # extended — take profit / don't chase
+    if chg > 0 and vsurge >= 1.5:
+        return "momentum"         # breaking out on volume — hot name
+    return "watch"
+
+
+def _deep_row(sym, price, chg, vsurge, popular=False):
+    """Pull RSI + EMAs for one symbol and classify it into an opportunity bucket."""
+    try:
+        rsi_series = fetch_rsi_series(sym, 14, limit=1, timespan="day")
+        rsi = rsi_series[0] if rsi_series else None
+        ema20 = fetch_ema(sym, 20, timespan="day")
+        ema50 = fetch_ema(sym, 50, timespan="day")
+    except Exception:        # noqa: BLE001
+        rsi = ema20 = ema50 = None
+    chg = chg if chg is not None else 0.0
+    bucket = _classify_bucket(rsi, chg, vsurge)
+    uptrend = (ema20 is not None and ema50 is not None and ema20 > ema50)
+    interest = abs(chg) * (1 + min(vsurge, 5) / 5)
+    return {
+        "ticker": sym, "price": round(price, 2), "change_pct": round(chg, 1),
+        "rsi": round(rsi, 1) if rsi is not None else None,
+        "vol_surge": vsurge, "bucket": bucket, "uptrend": uptrend,
+        "score": round(interest, 1), "popular": popular,
+    }
+
 
 def fetch_ticker_type(sym):
     """The security type (CS = common stock, ETF, ADRC, …) from ticker reference."""
@@ -1143,44 +1188,37 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
             ranked.append((interest, sym, price, chg, round(vsurge, 2)))
         ranked.sort(reverse=True)
 
+        # Popular names always get analyzed regardless of how much they moved.
+        popular_pending = [sym for sym in POPULAR if sym in snap and snap[sym]["price"] >= min_price]
         with _SCAN_LOCK:
-            _SCAN.update(stage="analyzing", total=top_n, progress=0)
+            _SCAN.update(stage="analyzing", total=top_n + len(popular_pending), progress=0)
 
-        # Walk the ranked list, keeping only real common stocks (drops ETFs/leveraged),
-        # until we have top_n analyzed or we've checked a sane maximum.
         results = []
+        seen = set()
+
+        # 1) Popular / recognizable names first (no volume filter, no type lookup —
+        #    they're all known common stocks). This guarantees NVDA/GOOGL/COIN/… show.
+        for sym in popular_pending:
+            d = snap[sym]
+            vsurge = (d["vol"] / d["prev_vol"]) if (d.get("vol") and d.get("prev_vol")) else 1.0
+            results.append(_deep_row(sym, d["price"], d.get("chg"), round(vsurge, 2), popular=True))
+            seen.add(sym)
+            with _SCAN_LOCK:
+                _SCAN["progress"] = len(results)
+
+        # 2) Walk the ranked movers, keeping only real common stocks (drops ETFs/
+        #    leveraged), until we have top_n discovery names or hit a sane cap.
         checked = 0
         for (interest, sym, price, chg, vsurge) in ranked:
-            if len(results) >= top_n or checked >= top_n * 4:
+            if (len(results) - len(seen)) >= top_n or checked >= top_n * 4:
                 break
+            if sym in seen:
+                continue
             checked += 1
             if fetch_ticker_type(sym) not in _COMMON_TYPES:
                 continue                          # ETF / ETN / fund — skip
-            try:
-                rsi_series = fetch_rsi_series(sym, 14, limit=1, timespan="day")
-                rsi = rsi_series[0] if rsi_series else None
-                ema20 = fetch_ema(sym, 20, timespan="day")
-                ema50 = fetch_ema(sym, 50, timespan="day")
-            except Exception:        # noqa: BLE001
-                rsi = ema20 = ema50 = None
-
-            if rsi is not None and rsi <= 40 and chg < 0:
-                bucket = "buy-low"            # oversold pullback — potential entry
-            elif rsi is not None and rsi >= 68 and chg > 0:
-                bucket = "overbought"         # extended — take profit / don't chase
-            elif chg > 0 and vsurge >= 1.5:
-                bucket = "momentum"           # breaking out on volume — hot name
-            else:
-                bucket = "watch"
-
-            uptrend = (ema20 is not None and ema50 is not None and ema20 > ema50)
-            results.append({
-                "ticker": sym, "price": round(price, 2),
-                "change_pct": round(chg, 1),
-                "rsi": round(rsi, 1) if rsi is not None else None,
-                "vol_surge": vsurge, "bucket": bucket, "uptrend": uptrend,
-                "score": round(interest, 1),
-            })
+            results.append(_deep_row(sym, price, chg, vsurge, popular=False))
+            seen.add(sym)
             with _SCAN_LOCK:
                 _SCAN["progress"] = len(results)
 

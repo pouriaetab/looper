@@ -68,8 +68,34 @@ function OpportunityScan({ onAddToWatchlist }) {
         </div>
       )}
 
+      {(() => {
+        const pop = results.filter(r => r.popular)
+        if (!pop.length) return null
+        const read = (r) => r.rsi == null ? 'no data'
+          : r.rsi <= 40 ? 'oversold' : r.rsi >= 68 ? 'overbought' : 'neutral'
+        const cls = (r) => r.rsi == null ? '' : r.rsi <= 40 ? 'r-low' : r.rsi >= 68 ? 'r-high' : 'r-mid'
+        // most oversold first, then by RSI ascending
+        const sorted = [...pop].sort((a, b) => (a.rsi ?? 999) - (b.rsi ?? 999))
+        return (
+          <div className="scanbucket">
+            <h4>★ Popular names — at a glance <span className="muted">({pop.length})</span></h4>
+            {sorted.map(r => (
+              <div className="scanrow" key={r.ticker}>
+                <span className="tkr">{r.ticker}</span>
+                <span className="px">
+                  ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
+                  {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
+                  <span className={`rtag ${cls(r)}`}>{read(r)}</span>
+                </span>
+                <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
       {buckets.map(([b, label]) => {
-        const rows = results.filter(r => r.bucket === b)
+        const rows = results.filter(r => r.bucket === b && !r.popular)
         if (!rows.length) return null
         return (
           <div key={b} className="scanbucket">

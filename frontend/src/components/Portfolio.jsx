@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react'
-import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus } from '../api'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus, getQuotes } from '../api'
+
+// Auto-refresh interval options for the live price refresh (seconds; 0 = off)
+const LIVE_INTERVALS = [[0, 'Off'], [3, '3s'], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [300, '5m']]
 
 // RSI condition read, reused across every scan subsection and sector drill-down.
 const RSI_TAG = (rsi) => rsi == null ? { text: 'no data', cls: 'r-mid' }
@@ -376,6 +379,15 @@ export default function Portfolio({ data, onOpen }) {
   const [hidden, setHidden] = useState(
     () => new Set(JSON.parse(localStorage.getItem('looperHidden') || '[]'))
   )
+  // Live price refresh for the Sell/Buy boxes only (fast, no full re-evaluation)
+  const [quotes, setQuotes] = useState({})          // { TICKER: {price, change_pct} }
+  const [liveSec, setLiveSec] = useState(
+    () => Number(localStorage.getItem('looperLiveSec')) || 0
+  )
+  const [liveBusy, setLiveBusy] = useState(false)
+  const [liveAt, setLiveAt] = useState(null)
+  const [liveErr, setLiveErr] = useState(false)
+  const liveTick = useRef(null)
 
   const toggleRow = (t) => setExpanded(prev => {
     const n = new Set(prev); n.has(t) ? n.delete(t) : n.add(t); return n
@@ -389,12 +401,43 @@ export default function Portfolio({ data, onOpen }) {
   const hideAll = (list) => setHidden(prev => { const n = new Set(prev); list.forEach(r => n.add(r.ticker)); persistHidden(n); return n })
   const showAll = (list) => setHidden(prev => { const n = new Set(prev); list.forEach(r => n.delete(r.ticker)); persistHidden(n); return n })
 
-  const results = data.results || []
+  // Overlay any live quotes onto the latest full evaluation (updates price → P/L +
+  // the decision tip; RSI/signals stay from the last full refresh).
+  const results = (data.results || []).map(r => {
+    const q = quotes[r.ticker]
+    return q ? { ...r, price: q.price } : r
+  })
   const errors = (data.errors || []).filter(e => !dismissedErrors.has(e.ticker))
   const sells = results.filter(r => r.side === 'sell').sort((a, b) => b.urgency - a.urgency)
   const buys = results.filter(r => r.side === 'buy').sort((a, b) => b.urgency - a.urgency)
   const visibleSells = sells.filter(r => !hidden.has(r.ticker))
   const visibleBuys = buys.filter(r => !hidden.has(r.ticker))
+
+  // Fast refresh of ONLY the Sell/Buy box prices (one quotes call, no re-eval).
+  const refreshPrices = useCallback(async () => {
+    const tickers = (data.results || []).map(r => r.ticker)
+    if (!tickers.length) return
+    setLiveBusy(true); setLiveErr(false)
+    try {
+      const d = await getQuotes(tickers)
+      setQuotes(d.quotes || {})
+      setLiveAt(Date.now())
+    } catch { setLiveErr(true) } finally { setLiveBusy(false) }
+  }, [data])
+
+  // Auto-refresh loop at the chosen interval (immediate hit, then every N seconds).
+  useEffect(() => {
+    if (liveTick.current) { clearInterval(liveTick.current); liveTick.current = null }
+    if (liveSec > 0) {
+      refreshPrices()
+      liveTick.current = setInterval(refreshPrices, liveSec * 1000)
+    }
+    return () => { if (liveTick.current) { clearInterval(liveTick.current); liveTick.current = null } }
+  }, [liveSec, refreshPrices])
+
+  useEffect(() => { localStorage.setItem('looperLiveSec', String(liveSec)) }, [liveSec])
+  // A full refresh brings fresh prices — drop the live overlay so nothing goes stale.
+  useEffect(() => { setQuotes({}); setLiveAt(null) }, [data])
 
   useEffect(() => {
     getWatchlist().then(d => setWatchlist(d.watchlist || [])).catch(() => setWatchlist([]))
@@ -460,6 +503,27 @@ export default function Portfolio({ data, onOpen }) {
               Clear all errors
             </button>
           )}
+        </div>
+      )}
+
+      {/* Live price refresh — Sell/Buy boxes only (fast; doesn't touch the rest) */}
+      {results.length > 0 && (
+        <div className="liverow">
+          <button className="link" onClick={refreshPrices} disabled={liveBusy}
+                  title="Refresh just the Sell/Buy prices — fast, and it won't reshuffle the rest">
+            {liveBusy ? '↻ refreshing…' : '↻ refresh prices'}
+          </button>
+          <label className="livauto" title="Auto-refresh these prices on a timer">
+            auto
+            <select value={liveSec} onChange={e => setLiveSec(Number(e.target.value))}>
+              {LIVE_INTERVALS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <span className="muted small">
+            {liveErr ? 'couldn’t update prices'
+              : liveAt ? `prices updated ${new Date(liveAt).toLocaleTimeString()}`
+              : 'live prices · P/L only (full ↻ Refresh updates signals)'}
+          </span>
         </div>
       )}
 

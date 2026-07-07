@@ -9,6 +9,8 @@ async function j(resp) {
 }
 
 export const getPortfolio = () => fetch('/api/portfolio').then(j)
+export const getQuotes = (tickers) =>
+  fetch(`/api/quotes?tickers=${encodeURIComponent((tickers || []).join(','))}`).then(j)
 export const getStock = (ticker) => fetch(`/api/stock/${ticker}`).then(j)
 export const getConfig = () => fetch('/api/config').then(j)
 

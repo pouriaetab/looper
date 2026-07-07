@@ -219,6 +219,15 @@ input:focus, select:focus {
 .theme.t-mixed { color: var(--text-secondary); }
 .theme.sel { box-shadow: 0 0 0 2px rgba(200, 100, 63, 0.25); border-color: var(--accent); }
 .scanlegend { margin: 0 0 12px; }
+
+/* Live price refresh bar above the Sell/Buy columns */
+.liverow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
+.liverow .link { font-size: 12px; font-weight: 600; }
+.livauto { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-secondary); }
+.livauto select {
+  font-size: 12px; padding: 2px 6px; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--surface); color: var(--text); width: auto;
+}
 .scanbucket { margin: 0 0 14px; }
 .scanhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 0 0 6px; }
 .scanhead h4 { font-size: 13px; margin: 0; font-weight: 600; }

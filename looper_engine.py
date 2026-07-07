@@ -1211,6 +1211,30 @@ def fetch_ticker_type(sym):
         return None
 
 
+def fetch_quotes(tickers):
+    """FAST price + today's %change for a specific set of tickers in ONE call.
+    Powers the live refresh of the Sell/Buy boxes without re-running the full
+    indicator evaluation (which is the slow part). Returns {SYM: {price, change_pct}}."""
+    syms = sorted({t.strip().upper() for t in tickers if t and t.strip()})
+    if not syms:
+        return {}
+    data = _get("/v2/snapshot/locale/us/markets/stocks/tickers",
+                {"tickers": ",".join(syms)}, timeout=15)
+    out = {}
+    for t in data.get("tickers", []) or []:
+        sym = t.get("ticker")
+        day = t.get("day") or {}
+        prev = t.get("prevDay") or {}
+        price = day.get("c") or prev.get("c")
+        chg = t.get("todaysChangePerc")
+        if chg is None and price and prev.get("c"):
+            chg = (price / prev["c"] - 1) * 100
+        if sym and price:
+            out[sym] = {"price": round(price, 2),
+                        "change_pct": round(chg, 2) if chg is not None else None}
+    return out
+
+
 def fetch_full_snapshot():
     """One call: every US ticker's latest daily bar (price, %chg, volume).
     Uses a long timeout — the response covers 10,000+ tickers."""

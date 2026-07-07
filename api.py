@@ -72,6 +72,17 @@ def portfolio():
     return {"results": results, "errors": errors}
 
 
+@app.get("/api/quotes")
+def quotes(tickers: str = ""):
+    """FAST live price + %change for a set of tickers (comma-separated). Used to
+    refresh the Sell/Buy boxes frequently without the heavy full re-evaluation."""
+    syms = [s for s in tickers.split(",") if s.strip()]
+    try:
+        return {"quotes": engine.fetch_quotes(syms)}
+    except Exception as e:        # noqa: BLE001
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @app.get("/api/config")
 def get_config():
     return {"stocks": engine.load_config().get("stocks", [])}

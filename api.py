@@ -212,6 +212,20 @@ def ledger_paired():
     return {"trips": engine.paired_ledger()}
 
 
+class ReserveAdjustIn(BaseModel):
+    amount: float
+    direction: str = "add"   # "add" raises the reserve, "reduce" lowers it
+
+
+@app.post("/api/reserve/adjust")
+def reserve_adjust(body: ReserveAdjustIn):
+    """Manually add to or reduce the re-entry reserve (logged as a ledger row)."""
+    try:
+        return engine.adjust_reserve(body.amount, body.direction)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.delete("/api/stocks/{ticker}")
 def delete(ticker: str):
     return {"stocks": engine.remove_stock(ticker)}

@@ -220,6 +220,16 @@ input:focus, select:focus {
 .theme.sel { box-shadow: 0 0 0 2px rgba(200, 100, 63, 0.25); border-color: var(--accent); }
 .scanlegend { margin: 0 0 12px; }
 
+/* Re-entry reserve summary + manual add/reduce controls */
+.reservebox { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); }
+.reservesum { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; margin-bottom: 8px; }
+.reservesum .pos { color: var(--success); font-weight: 700; }
+.reservesum .neg { color: var(--danger); font-weight: 700; }
+.reserveadj { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.reserveadj input { padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); }
+.reserveadj button { font-size: 12px; padding: 5px 10px; }
+.ledgertable tr.resrow td { background: rgba(200, 100, 63, 0.05); font-style: italic; }
+
 /* Live price refresh bar above the Sell/Buy columns */
 .liverow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
 .liverow .link { font-size: 12px; font-weight: 600; }

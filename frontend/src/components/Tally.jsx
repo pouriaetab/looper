@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react'
-import { getTally, getPairedLedger, updateLedgerRow, deleteLedgerRow } from '../api'
+import { getTally, getPairedLedger, updateLedgerRow, deleteLedgerRow, adjustReserve } from '../api'
 
 function money(n) {
   if (n == null || isNaN(n)) return '—'
@@ -69,8 +69,10 @@ function LedgerTable({ trips, field, onEdited }) {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
-  const tickers = [...new Set(trips.map(t => t.ticker).filter(Boolean))].sort()
-  const shown = trips.filter(t =>
+  // manual reserve adjustments only belong in the reserve view
+  const base = isReserve ? trips : trips.filter(t => !t.reserve_adjust)
+  const tickers = [...new Set(base.map(t => t.ticker).filter(Boolean))].sort()
+  const shown = base.filter(t =>
     (fTicker === 'all' || t.ticker === fTicker) &&
     (fStatus === 'all' || (fStatus === 'open' ? t.open : !t.open)))
 
@@ -197,10 +199,12 @@ function LedgerTable({ trips, field, onEdited }) {
           </thead>
           <tbody>
             {pageRows.map((t) => (
-              <tr key={keyOf(t)} className={editing(t) ? 'editing' : ''}>
-                <td>{cell(t, 'ticker', t.sell_idx ?? t.buy_idx, () => t.ticker)}</td>
+              <tr key={keyOf(t)} className={`${editing(t) ? 'editing' : ''} ${t.reserve_adjust ? 'resrow' : ''}`}>
+                <td>{t.reserve_adjust
+                  ? <span title={t.note}>{t.reentry_reserve ? 'Reserve +' : 'Reserve −'}</span>
+                  : cell(t, 'ticker', t.sell_idx ?? t.buy_idx, () => t.ticker)}</td>
                 <td>{cell(t, 'shares', t.sell_idx ?? t.buy_idx, () => t.shares)}</td>
-                <td>{cell(t, 'buy_date', t.buy_idx, () => t.buy_date || '—')}</td>
+                <td>{cell(t, 'buy_date', t.buy_idx, () => (t.reserve_adjust ? t.sell_date : (t.buy_date || '—')))}</td>
                 <td>{cell(t, 'buy_price', t.sell_idx ?? t.buy_idx, () => money(t.buy_price))}</td>
                 <td>{cell(t, 'sell_date', t.sell_idx, () => (t.open ? <span className="rtag r-mid">open</span> : t.sell_date))}</td>
                 <td>{cell(t, 'sell_price', t.sell_idx, () => (t.sell_price != null ? money(t.sell_price) : '—'))}</td>
@@ -233,9 +237,11 @@ function LedgerTable({ trips, field, onEdited }) {
             {isReserve ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: 'right', fontWeight: 600 }}>
-                  Added {money(reserveAdded)} − used {money(reserveUsed)} =
+                  In {money(reserveAdded)} − out {money(reserveUsed)} =
                 </td>
-                <td colSpan={3} className="hl" style={{ fontWeight: 700 }}>{money(reserveRemaining)} left</td>
+                <td colSpan={3} className={`hl ${reserveRemaining < 0 ? 'neg' : 'pos'}`} style={{ fontWeight: 700 }}>
+                  {reserveRemaining < 0 ? `overspent ${money(-reserveRemaining)}` : `${money(reserveRemaining)} left`}
+                </td>
               </tr>
             ) : (field === 'realized_profit' || field === 'net_profit_taken') ? (
               <tr>
@@ -249,6 +255,42 @@ function LedgerTable({ trips, field, onEdited }) {
         </table>
       </div>
     </>
+  )
+}
+
+// Reserve summary + manual add / reduce controls (shown above the reserve ledger).
+function ReserveAdjust({ t, onDone }) {
+  const [amt, setAmt] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+  const net = t.reserve_net ?? 0
+
+  const go = async (direction) => {
+    const v = parseFloat(amt)
+    if (!(v > 0)) { setErr('Enter an amount above 0.'); return }
+    setBusy(true); setErr(null)
+    try { await adjustReserve(v, direction); setAmt(''); onDone && onDone() }
+    catch (e) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="reservebox">
+      <div className="reservesum">
+        <span>In <b>{money(t.reserve_added)}</b></span>
+        <span>Out <b>{money(t.reserve_used)}</b></span>
+        <span className={net < 0 ? 'neg' : 'pos'}>
+          {net < 0 ? `Overspent ${money(-net)}` : `Available ${money(net)}`}
+        </span>
+      </div>
+      <div className="reserveadj">
+        <input type="number" step="0.01" placeholder="amount $" value={amt}
+               onChange={e => setAmt(e.target.value)} style={{ width: '110px' }} />
+        <button disabled={busy} onClick={() => go('add')}>+ Add to reserve</button>
+        <button disabled={busy} onClick={() => go('reduce')}>− Reduce reserve</button>
+        <span className="muted small">logged as a ledger row you can delete</span>
+      </div>
+      {err && <p className="error small" style={{ margin: '6px 0 0' }}>{err}</p>}
+    </div>
   )
 }
 
@@ -284,9 +326,12 @@ export default function Tally({ refreshKey }) {
         <Card label="Net profit taken" value={money(t.net_profit_taken)} tone={tone(t.net_profit_taken)}
               active={active === 'Net profit taken'} onClick={() => toggle('Net profit taken')}
               sub={`after ${Math.round(t.reinvest_profit_pct * 100)}% reinvest`} />
-        <Card label="Re-entry reserve" value={money(t.reentry_reserve)}
+        <Card label="Re-entry reserve" value={money(t.reserve_net ?? t.reentry_reserve)}
+              tone={(t.reserve_net ?? 0) < 0 ? 'neg' : ''}
               active={active === 'Re-entry reserve'} onClick={() => toggle('Re-entry reserve')}
-              sub={t.reserve_used ? `${money(t.reserve_added)} added · ${money(t.reserve_used)} used` : 'available to redeploy'} />
+              sub={(t.reserve_net ?? 0) < 0
+                ? `overspent ${money(t.reserve_overspent)} · in ${money(t.reserve_added)} · out ${money(t.reserve_used)}`
+                : `in ${money(t.reserve_added)} · out ${money(t.reserve_used)}`} />
       </div>
 
       {active && (
@@ -295,6 +340,7 @@ export default function Tally({ refreshKey }) {
             <strong>{active} — {(active === 'Holdings' || active === 'Unrealized P/L') ? 'details' : 'round-trips (buy ↔ sell)'}</strong>
             <button className="link" onClick={() => setActive(null)}>close ✕</button>
           </div>
+          {active === 'Re-entry reserve' && <ReserveAdjust t={t} onDone={load} />}
           {(active === 'Holdings' || active === 'Unrealized P/L')
             ? <HoldingsTable holdings={t.holdings || []} />
             : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} />}

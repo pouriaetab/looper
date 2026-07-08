@@ -201,6 +201,23 @@ def paired_ledger():
                    "whole": abs(lot["left"] - lot["orig"]) < 1e-9}
             trips.append(_trip(tkr, lot["left"], buy, None))
 
+    # Manual reserve add/reduce entries show as their own rows in the reserve view.
+    for r in indexed:
+        if r.get("action") != "reserve_adjust":
+            continue
+        trips.append({
+            "ticker": r.get("ticker") or "RESERVE", "shares": "",
+            "buy_idx": None, "buy_date": None, "buy_price": None,
+            "sell_idx": r["_idx"], "sell_date": r.get("date"), "sell_price": None,
+            "cost_basis": None, "proceeds": None,
+            "realized_profit": None, "net_profit_taken": None,
+            "reentry_reserve": _lnum(r, "reentry_reserve"),
+            "reserve_used": _lnum(r, "reserve_used"),
+            "open": False, "editable": False, "reserve_adjust": True,
+            "note": r.get("note", ""),
+            "sort_key": r.get("timestamp") or r.get("date") or "",
+        })
+
     trips.sort(key=lambda t: t["sort_key"], reverse=True)
     for t in trips:
         t.pop("sort_key", None)
@@ -820,11 +837,15 @@ def portfolio_tally():
                     pass
         return round(total, 2)
 
-    # Re-entry reserve is a running pool: sales ADD to it, reserve-funded buys
-    # DRAW from it. Remaining = added − used (can't go below 0).
-    reserve_added = _sum("reentry_reserve")
-    reserve_used = _sum("reserve_used", actions=("buy", "reentry", "reserve_use"))
-    reserve_remaining = round(max(reserve_added - reserve_used, 0.0), 2)
+    # Re-entry reserve is a running pool: sales (and manual "add" adjustments) ADD to
+    # it; reserve-funded buys (and manual "reduce" adjustments) DRAW from it.
+    #   net = added − used   (can be NEGATIVE = you've overspent the reserve)
+    #   available = max(net, 0)   overspent = max(-net, 0)
+    reserve_added = _sum("reentry_reserve", actions=("sell", "reserve_adjust"))
+    reserve_used = _sum("reserve_used", actions=("buy", "reentry", "reserve_use", "reserve_adjust"))
+    reserve_net = round(reserve_added - reserve_used, 2)
+    reserve_remaining = round(max(reserve_net, 0.0), 2)
+    reserve_overspent = round(max(-reserve_net, 0.0), 2)
 
     return {
         "positions": len(holdings),
@@ -839,6 +860,8 @@ def portfolio_tally():
         "reentry_reserve": reserve_remaining,
         "reserve_added": reserve_added,
         "reserve_used": reserve_used,
+        "reserve_net": reserve_net,
+        "reserve_overspent": reserve_overspent,
         "reinvest_profit_pct": reinvest,
         "holdings": holdings,
     }
@@ -888,6 +911,26 @@ def record_reserve_use(ticker, amount, when=None):
         "reserve_used": round(amount, 4), "note": "manual: funded from re-entry reserve",
     })
     return {"ticker": ticker, "reserve_used": round(amount, 4)}
+
+
+def adjust_reserve(amount, direction="add", when=None, note=None):
+    """Manually raise or lower the re-entry reserve (e.g. you added cash to redeploy,
+    or want to write some down). Recorded as its own ledger row so it's tracked and
+    shows in the reserve view. direction: 'add' raises it, 'reduce' lowers it."""
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("Amount must be greater than 0.")
+    if direction not in ("add", "reduce"):
+        raise ValueError("direction must be 'add' or 'reduce'.")
+    ts, day = _now_parts(when)
+    row = {"timestamp": ts, "date": day, "action": "reserve_adjust", "ticker": "RESERVE",
+           "note": note or f"manual reserve {direction}"}
+    if direction == "add":
+        row["reentry_reserve"] = round(amount, 4)
+    else:
+        row["reserve_used"] = round(amount, 4)
+    _append_ledger(row)
+    return {"direction": direction, "amount": round(amount, 4)}
 
 
 def _stock_cfg(cfg, stock):

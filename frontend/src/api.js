@@ -35,6 +35,14 @@ export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
 export const getPairedLedger = () => fetch('/api/ledger/paired').then(j)
 
+// Manually add to (direction 'add') or reduce (direction 'reduce') the re-entry reserve.
+export const adjustReserve = (amount, direction) =>
+  fetch('/api/reserve/adjust', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, direction }),
+  }).then(j)
+
 // Edit the ledger as a master file: fix a value in one row, or delete a row.
 export const updateLedgerRow = (index, fields) =>
   fetch(`/api/ledger/${index}`, {

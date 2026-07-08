@@ -166,7 +166,7 @@ input:focus, select:focus {
 .pl.pos, .exit.pos { color: var(--success); }
 .pl.neg { color: var(--danger); }
 .exit { font-size: 12px; font-weight: 600; }
-.exit.neg { color: var(--text-secondary); }
+.exit.neg { color: var(--danger); }   /* price above your sell price — rebuying costs more */
 .decis {
   font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 999px; white-space: nowrap;
 }

@@ -258,11 +258,12 @@ function LedgerTable({ trips, field, onEdited }) {
   )
 }
 
-// Reserve summary + manual add / reduce controls (shown above the reserve ledger).
-function ReserveAdjust({ t, onDone }) {
+// Reserve summary + collapsible manual add / reduce controls (above the reserve ledger).
+function ReserveAdjust({ t, onDone, tied = 0 }) {
   const [amt, setAmt] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [open, setOpen] = useState(false)   // adjust controls hidden by default
   const net = t.reserve_net ?? 0
 
   const go = async (direction) => {
@@ -278,17 +279,23 @@ function ReserveAdjust({ t, onDone }) {
       <div className="reservesum">
         <span>In <b>{money(t.reserve_added)}</b></span>
         <span>Out <b>{money(t.reserve_used)}</b></span>
+        {tied > 0 && <span title="Reserve cash still invested in open positions — comes back when you sell them">Tied up (open) <b>{money(tied)}</b></span>}
         <span className={net < 0 ? 'neg' : 'pos'}>
           {net < 0 ? `Overspent ${money(-net)}` : `Available ${money(net)}`}
         </span>
+        <button className="link" style={{ marginLeft: 'auto' }} onClick={() => setOpen(o => !o)}>
+          {open ? 'hide adjust' : 'adjust reserve'}
+        </button>
       </div>
-      <div className="reserveadj">
-        <input type="number" step="0.01" placeholder="amount $" value={amt}
-               onChange={e => setAmt(e.target.value)} style={{ width: '110px' }} />
-        <button disabled={busy} onClick={() => go('add')}>+ Add to reserve</button>
-        <button disabled={busy} onClick={() => go('reduce')}>− Reduce reserve</button>
-        <span className="muted small">logged as a ledger row you can delete</span>
-      </div>
+      {open && (
+        <div className="reserveadj">
+          <input type="number" step="0.01" placeholder="amount $" value={amt}
+                 onChange={e => setAmt(e.target.value)} style={{ width: '110px' }} />
+          <button disabled={busy} onClick={() => go('add')}>+ Add to reserve</button>
+          <button disabled={busy} onClick={() => go('reduce')}>− Reduce reserve</button>
+          <span className="muted small">logged as a ledger row you can delete</span>
+        </div>
+      )}
       {err && <p className="error small" style={{ margin: '6px 0 0' }}>{err}</p>}
     </div>
   )
@@ -340,7 +347,9 @@ export default function Tally({ refreshKey }) {
             <strong>{active} — {(active === 'Holdings' || active === 'Unrealized P/L') ? 'details' : 'round-trips (buy ↔ sell)'}</strong>
             <button className="link" onClick={() => setActive(null)}>close ✕</button>
           </div>
-          {active === 'Re-entry reserve' && <ReserveAdjust t={t} onDone={load} />}
+          {active === 'Re-entry reserve' &&
+            <ReserveAdjust t={t} onDone={load}
+              tied={trips.filter(x => x.open).reduce((s, x) => s + (x.reserve_used || 0), 0)} />}
           {(active === 'Holdings' || active === 'Unrealized P/L')
             ? <HoldingsTable holdings={t.holdings || []} />
             : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} />}

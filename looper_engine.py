@@ -166,7 +166,7 @@ def paired_ledger():
             "realized_profit": realized,
             "net_profit_taken": _lnum(sell, "net_profit_taken") if sell else None,
             "reentry_reserve": _lnum(sell, "reentry_reserve") if sell else None,
-            "reserve_used": (buy["row"].get("reserve_used") or None) if buy else None,
+            "reserve_used": _lnum(buy["row"], "reserve_used") if buy else None,
             "open": sell is None,
             # only 1:1 whole-lot trips map cleanly back to single rows for inline edit
             "editable": buy_whole and sell_whole,

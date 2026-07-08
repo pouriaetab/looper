@@ -240,13 +240,21 @@ function Row({ r, onOpen, open, onToggle }) {
   const gp = entry ? (r.price / entry - 1) * 100 : null
   const gAbs = (entry && shares) ? (r.price - entry) * shares : null
   const last = pos.last_sell_price
-  const vs = last ? (r.price / last - 1) * 100 : null
+  const vs = last ? (r.price / last - 1) * 100 : null             // now vs your sell price
+  const vsAbs = (last && shares) ? (r.price - last) * shares : null // $ swing on your sold size
+  const saleGain = (entry && last && shares) ? (last - entry) * shares : null  // made at sale
+  const saleGainPct = (entry && last) ? (last / entry - 1) * 100 : null
   const d = decide(r)
   const urg = r.urgency > 0.8 ? '🔥' : r.urgency > 0.5 ? '⚠️' : '•'
 
   const plText = gAbs != null
     ? `${gAbs >= 0 ? '+' : '-'}$${Math.abs(gAbs).toFixed(2)} (${gp >= 0 ? '+' : '-'}${Math.abs(gp).toFixed(0)}%)`
     : gp != null ? `${gp >= 0 ? '+' : '-'}${Math.abs(gp).toFixed(0)}%` : null
+
+  // Re-entry pill: price ABOVE your exit = red (ran away), BELOW = green (cheaper to rebuy)
+  const exitText = vs != null
+    ? `${vs > 0 ? '+' : ''}${vs.toFixed(1)}%${vsAbs != null ? ` · ${vsAbs >= 0 ? '+' : '-'}$${Math.abs(vsAbs).toFixed(2)}` : ''} vs exit`
+    : null
 
   return (
     <div className={`row t-${d.tone} ${open ? 'is-open' : ''}`}>
@@ -260,8 +268,8 @@ function Row({ r, onOpen, open, onToggle }) {
         <span className="px">${r.price.toFixed(2)}</span>
         <span className="rowright">
           {held && plText && <span className={`pl ${gp >= 0 ? 'pos' : 'neg'}`}>{plText}</span>}
-          {!held && vs != null && (
-            <span className={`exit ${vs <= 0 ? 'pos' : 'neg'}`}>{vs <= 0 ? '' : '+'}{vs.toFixed(0)}% vs exit</span>
+          {!held && exitText && (
+            <span className={`exit ${vs > 0 ? 'neg' : 'pos'}`}>{exitText}</span>
           )}
           <span className={`decis t-${d.tone}`}>{d.label}</span>
         </span>
@@ -271,7 +279,10 @@ function Row({ r, onOpen, open, onToggle }) {
         <span className="tip">{d.tip}</span>
         <span className="metric">
           RSI {Math.round(r.rsi)}
-          {held && entry ? ` · in @ $${entry.toFixed(2)}` : (!held && last ? ` · out @ $${last}` : '')}
+          {held && entry ? ` · in @ $${entry.toFixed(2)}`
+            : (!held && last
+              ? ` · out @ $${last}${saleGain != null ? ` · made ${saleGain >= 0 ? '+' : '-'}$${Math.abs(saleGain).toFixed(2)} (${saleGainPct >= 0 ? '+' : ''}${saleGainPct.toFixed(0)}%)` : ''}`
+              : '')}
         </span>
       </div>
 

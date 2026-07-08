@@ -20,6 +20,7 @@ import os
 import sys
 import csv
 import json
+import time
 import threading
 import datetime as dt
 from collections import defaultdict, deque
@@ -242,11 +243,20 @@ def _last_price(ticker: str):
 # --------------------------------------------------------------------------- #
 # API helpers
 # --------------------------------------------------------------------------- #
-def _get(path, params=None, timeout=20):
+def _get(path, params=None, timeout=30, retries=2):
+    """GET with the bearer token. The Massive API occasionally hiccups with a read
+    timeout; retry those (and connection errors) a couple of times with a short
+    backoff so they don't surface as errors on the dashboard."""
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    resp = requests.get(BASE + path, headers=headers, params=params or {}, timeout=timeout)
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(BASE + path, headers=headers, params=params or {}, timeout=timeout)
+            resp.raise_for_status()
+            return resp.json()
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt >= retries:
+                raise
+            time.sleep(0.5 * (attempt + 1))
 
 
 def fetch_daily_bars(ticker, days=None, timespan="day"):

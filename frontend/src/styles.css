@@ -251,6 +251,12 @@ input:focus, select:focus {
 .scanrow { display: flex; align-items: center; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
 .scanrow:last-child { border-bottom: none; }
 .scanrow .px { flex: 1; color: var(--text-secondary); }
+.scanrow .px .pos { color: var(--success); }
+.scanrow .px .neg { color: var(--danger); }
+/* clickable ticker → opens deep analysis */
+.tkrlink { border: none; background: none; padding: 0; font: inherit; font-weight: 700;
+  color: var(--accent); cursor: pointer; }
+.tkrlink:hover { text-decoration: underline; }
 
 /* Collapsed rows: tight one-liner (ticker list) */
 .row-collapsed { padding: 7px 12px; }

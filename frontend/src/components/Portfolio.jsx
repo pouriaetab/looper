@@ -12,14 +12,15 @@ const RSI_TAG = (rsi) => rsi == null ? { text: 'no data', cls: 'r-mid' }
 
 const SCAN_SORTS = [
   ['default', 'Sort: default'],
+  ['mchg', '1-month (high→low)'],
   ['rsi', 'RSI (oversold first)'],
   ['price', 'Price (high→low)'],
-  ['chg', 'Change % (high→low)'],
+  ['chg', 'Today % (high→low)'],
 ]
 
 // Reusable scan subsection: title with inline show/hide + sort + type filter, then rows.
 // This is the shared pattern for popular names, each bucket, and sector drill-downs.
-function ScanSection({ title, rows, onAddToWatchlist, defaultSort = 'default' }) {
+function ScanSection({ title, rows, onAddToWatchlist, onOpen, defaultSort = 'default' }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sort, setSort] = useState(defaultSort)
   const [type, setType] = useState('all')   // all | oversold | neutral | overbought
@@ -28,6 +29,7 @@ function ScanSection({ title, rows, onAddToWatchlist, defaultSort = 'default' })
   if (sort === 'rsi') list = [...list].sort((a, b) => (a.rsi ?? 999) - (b.rsi ?? 999))
   else if (sort === 'price') list = [...list].sort((a, b) => b.price - a.price)
   else if (sort === 'chg') list = [...list].sort((a, b) => b.change_pct - a.change_pct)
+  else if (sort === 'mchg') list = [...list].sort((a, b) => (b.mchg ?? -999) - (a.mchg ?? -999))
 
   return (
     <div className="scanbucket">
@@ -50,10 +52,13 @@ function ScanSection({ title, rows, onAddToWatchlist, defaultSort = 'default' })
         const tag = RSI_TAG(r.rsi)
         return (
           <div className="scanrow" key={r.ticker}>
-            <span className="tkr">{r.ticker}</span>
+            <button className="tkr tkrlink" title={`Open deep analysis for ${r.ticker}`}
+                    onClick={() => onOpen && onOpen(r.ticker)}>{r.ticker}</button>
             <span className="px">
               ${r.price.toFixed(2)} · {r.change_pct >= 0 ? '+' : ''}{r.change_pct}%
-              {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}{r.uptrend ? ' · uptrend' : ''}
+              {r.rsi != null && ` · RSI ${Math.round(r.rsi)}`}
+              {r.mchg != null && <> · <b className={r.mchg >= 0 ? 'pos' : 'neg'}>1mo {r.mchg >= 0 ? '+' : ''}{r.mchg}%</b></>}
+              {r.uptrend ? ' · uptrend' : ''}
               <span className={`rtag ${tag.cls}`}>{tag.text}</span>
             </span>
             <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
@@ -66,7 +71,7 @@ function ScanSection({ title, rows, onAddToWatchlist, defaultSort = 'default' })
 }
 
 // ---- Deep Opportunity Scan panel (whole-market, with progress + themes) ----
-function OpportunityScan({ onAddToWatchlist }) {
+function OpportunityScan({ onAddToWatchlist, onOpen }) {
   const [st, setSt] = useState(null)
   const [elapsed, setElapsed] = useState(0)
   const [openTheme, setOpenTheme] = useState(null)   // sector drilled into
@@ -112,6 +117,7 @@ function OpportunityScan({ onAddToWatchlist }) {
           <span className="scanprog">
             <span className="pbar"><span className="pfill" style={{ width: `${pct}%` }} /></span>
             {st.stage === 'snapshot' ? 'pulling market snapshot…'
+              : st.stage === 'momentum' ? 'checking 1-month trends…'
               : st.stage === 'themes' ? 'checking sector leaders…'
               : `analyzing ${st.progress}/${st.total}`} · {elapsed}s
           </span>
@@ -126,7 +132,9 @@ function OpportunityScan({ onAddToWatchlist }) {
 
       {(results.length > 0 || themes.length > 0) && (
         <p className="muted small scanlegend">
-          RSI = momentum (≤40 oversold · ≥68 overbought). % = today’s price change vs yesterday’s close.
+          {st?.finished && <>As of <b>{new Date(st.finished).toLocaleString()}</b> — click ⟳ to refresh · </>}
+          Click a ticker for deep analysis. RSI = momentum (≤40 oversold · ≥68 overbought).
+          % = today’s change{st?.month_date ? `; 1mo = since ${st.month_date}` : '; 1mo = ~1-month change'}.
         </p>
       )}
 
@@ -147,7 +155,7 @@ function OpportunityScan({ onAddToWatchlist }) {
             </div>
             {openT && (openT.stocks?.length
               ? <ScanSection title={`${openT.theme} — sector names`} rows={openT.stocks}
-                             onAddToWatchlist={onAddToWatchlist} defaultSort="rsi" />
+                             onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="rsi" />
               : <p className="muted small">No names to show for {openT.theme} in this scan.</p>)}
           </>
         )
@@ -156,13 +164,20 @@ function OpportunityScan({ onAddToWatchlist }) {
       {results.filter(r => r.popular).length > 0 && (
         <ScanSection title="★ Popular names — at a glance"
                      rows={results.filter(r => r.popular)}
-                     onAddToWatchlist={onAddToWatchlist} defaultSort="rsi" />
+                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="rsi" />
+      )}
+
+      {results.filter(r => r.mchg != null && r.mchg >= 12).length > 0 && (
+        <ScanSection title="↑ Monthly climbers — trending up over ~1 month"
+                     rows={results.filter(r => r.mchg != null && r.mchg >= 12)}
+                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="mchg" />
       )}
 
       {buckets.map(([b, label]) => {
         const rows = results.filter(r => r.bucket === b && !r.popular)
         if (!rows.length) return null
-        return <ScanSection key={b} title={label} rows={rows} onAddToWatchlist={onAddToWatchlist} />
+        return <ScanSection key={b} title={label} rows={rows}
+                            onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} />
       })}
 
       {!st?.running && results.length === 0 && !st?.error && (
@@ -594,7 +609,7 @@ export default function Portfolio({ data, onOpen }) {
         {showScanner && (
           <div className="sectbody">
             <p className="sub">Deep whole-market scan — oversold buy-low pullbacks, hot momentum names, and sector-theme heat (quantum, semis, robotics…). Takes ~30–60s with a progress bar.</p>
-            <OpportunityScan onAddToWatchlist={handleAddToWatchlist} />
+            <OpportunityScan onAddToWatchlist={handleAddToWatchlist} onOpen={onOpen} />
           </div>
         )}
       </section>

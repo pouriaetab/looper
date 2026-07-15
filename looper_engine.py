@@ -1191,7 +1191,7 @@ THEMES = {
 _SCAN = {
     "running": False, "stage": "idle", "progress": 0, "total": 0,
     "started": None, "finished": None, "error": None,
-    "scanned_universe": 0, "results": None, "themes": None,
+    "scanned_universe": 0, "results": None, "themes": None, "month_date": None,
 }
 _SCAN_LOCK = threading.Lock()
 
@@ -1221,6 +1221,7 @@ POPULAR = {
     "MRVL", "MSTR", "UBER", "ABNB", "DIS", "BA", "F", "SQ", "XYZ", "DKNG", "RBLX",
     "SNAP", "PINS", "ROKU", "CVNA", "DELL", "CRM", "ORCL", "ADBE", "BABA", "RIVN",
     "V", "MA", "JPM", "WMT", "COST", "GME", "LLY", "NKE", "OKLO", "IONQ", "RGTI",
+    "CRWD", "PANW", "ZS", "NET", "DDOG", "SNOW", "ANET", "VRT", "FTNT", "CRDO",
 }
 
 
@@ -1310,6 +1311,36 @@ def fetch_full_snapshot():
     return out
 
 
+def fetch_grouped_daily(date):
+    """Every US stock's daily close for ONE date in a single call ('grouped daily').
+    Lets us compute ~1-month momentum for the whole market cheaply. Returns {SYM: close}."""
+    data = _get(f"/v2/aggs/grouped/locale/us/market/stocks/{date}",
+                {"adjusted": "true"}, timeout=40)
+    out = {}
+    for r in data.get("results", []) or []:
+        sym, c = r.get("T"), r.get("c")
+        if sym and c:
+            out[sym] = c
+    return out
+
+
+def month_ago_closes(days_back=30, tries=6):
+    """Grouped closes for a trading day ~`days_back` calendar days ago (steps back over
+    weekends/holidays until a day returns data). Returns ({SYM: close}, 'YYYY-MM-DD')."""
+    d = dt.date.today() - dt.timedelta(days=days_back)
+    for _ in range(tries):
+        while d.weekday() >= 5:            # skip Sat/Sun
+            d -= dt.timedelta(days=1)
+        try:
+            closes = fetch_grouped_daily(d.isoformat())
+        except Exception:        # noqa: BLE001
+            closes = {}
+        if closes:
+            return closes, d.isoformat()
+        d -= dt.timedelta(days=1)
+    return {}, None
+
+
 def theme_momentum(snap):
     """Average daily move per theme basket → which sectors are hot / cooling today."""
     themes = []
@@ -1345,26 +1376,45 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
             raise RuntimeError("Market snapshot came back empty. Snapshot data repopulates "
                                "around 4:00 AM ET — try again during/near market hours.")
 
-        # Rank the whole liquid market for "something is happening": magnitude of the
-        # day's move amplified by a volume surge vs. the prior day. Volume falls back
-        # to the prior day so we still find names outside of regular trading hours.
-        ranked = []
+        # ~1-month momentum for the whole market in one extra call, so we ALSO catch
+        # names that have been climbing for weeks even if they're quiet today (e.g.
+        # CRWD grinding higher). Safe to skip if the grouped call fails.
+        with _SCAN_LOCK:
+            _SCAN.update(stage="momentum")
+        month_closes, month_date = month_ago_closes(30)
+
+        def _mchg(sym):
+            c0 = month_closes.get(sym)
+            p = snap.get(sym, {}).get("price")
+            return round((p / c0 - 1) * 100, 1) if (c0 and p) else None
+
+        # Rank the liquid market TWO ways so both same-day action and multi-week
+        # climbers feed the deep-analysis pool:
+        #   ranked        = today's move × volume surge   (something happening now)
+        #   ranked_month  = ~1-month % change              (trending up over weeks)
+        ranked, ranked_month = [], []
         for sym, d in snap.items():
             price, chg = d["price"], d.get("chg")
             vol = max(d.get("vol") or 0, d.get("prev_vol") or 0)
-            if chg is None or price < min_price or vol < min_volume or price * vol < min_dollar_vol:
+            if price < min_price or vol < min_volume or price * vol < min_dollar_vol:
                 continue
             if sym in LEVERAGED_ETFS:            # skip obvious leveraged/inverse ETFs
                 continue
             vsurge = (d["vol"] / d["prev_vol"]) if (d.get("vol") and d.get("prev_vol")) else 1.0
-            interest = abs(chg) * (1 + min(vsurge, 5) / 5)
-            ranked.append((interest, sym, price, chg, round(vsurge, 2)))
+            if chg is not None:
+                interest = abs(chg) * (1 + min(vsurge, 5) / 5)
+                ranked.append((interest, sym, price, chg, round(vsurge, 2)))
+            m = _mchg(sym)
+            if m is not None:
+                ranked_month.append((m, sym, price, chg, round(vsurge, 2)))
         ranked.sort(reverse=True)
+        ranked_month.sort(reverse=True)          # biggest 1-month gainers first
 
         # Popular names always get analyzed regardless of how much they moved.
         popular_pending = [sym for sym in POPULAR if sym in snap and snap[sym]["price"] >= min_price]
+        monthly_cap = max(20, top_n // 2)
         with _SCAN_LOCK:
-            _SCAN.update(stage="analyzing", total=top_n + len(popular_pending), progress=0)
+            _SCAN.update(stage="analyzing", total=top_n + len(popular_pending) + monthly_cap, progress=0)
 
         results = []
         seen = set()
@@ -1395,6 +1445,26 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
             with _SCAN_LOCK:
                 _SCAN["progress"] = len(results)
 
+        # 3) Monthly climbers — top ~1-month gainers we haven't already analyzed.
+        madded = mchecked = 0
+        for (m, sym, price, chg, vsurge) in ranked_month:
+            if madded >= monthly_cap or mchecked >= monthly_cap * 5:
+                break
+            if sym in seen:
+                continue
+            mchecked += 1
+            if fetch_ticker_type(sym) not in _COMMON_TYPES:
+                continue
+            results.append(_deep_row(sym, price, chg, vsurge, popular=False))
+            seen.add(sym)
+            madded += 1
+            with _SCAN_LOCK:
+                _SCAN["progress"] = len(results)
+
+        # tag every analyzed name with its ~1-month change (for display + a climbers view)
+        for r in results:
+            r["mchg"] = _mchg(r["ticker"])
+
         # nice ordering: buy-low first (your entries), then momentum, then overbought
         order = {"buy-low": 0, "momentum": 1, "overbought": 2, "watch": 3}
         results.sort(key=lambda r: (order.get(r["bucket"], 9), -r["score"]))
@@ -1411,11 +1481,12 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
             d = snap[sym]
             vs = (d["vol"] / d["prev_vol"]) if (d.get("vol") and d.get("prev_vol")) else 1.0
             row = _deep_row(sym, d["price"], d.get("chg"), round(vs, 2))
+            row["mchg"] = _mchg(sym)
             analyzed[sym] = row
             return row
 
         themes = theme_momentum(snap)
-        keep = ("ticker", "price", "change_pct", "rsi", "bucket", "uptrend")
+        keep = ("ticker", "price", "change_pct", "rsi", "bucket", "uptrend", "mchg")
         for th in themes:
             stocks = []
             for sym in THEMES.get(th["theme"], []):
@@ -1426,14 +1497,14 @@ def run_deep_scan(top_n=60, min_price=5.0, min_dollar_vol=5_000_000, min_volume=
 
         DATA_DIR.mkdir(exist_ok=True)
         payload = {"as_of": dt.datetime.now().isoformat(timespec="seconds"),
-                   "results": results, "themes": themes,
+                   "results": results, "themes": themes, "month_date": month_date,
                    "scanned_universe": _SCAN["scanned_universe"]}
         with open(DATA_DIR / "scan.json", "w") as f:
             json.dump(payload, f, indent=2)
 
         with _SCAN_LOCK:
             _SCAN.update(running=False, stage="done", results=results, themes=themes,
-                         finished=payload["as_of"])
+                         finished=payload["as_of"], month_date=month_date)
     except Exception as e:        # noqa: BLE001
         with _SCAN_LOCK:
             _SCAN.update(running=False, stage="error", error=str(e))
@@ -1453,8 +1524,8 @@ def start_scan():
 def scan_status():
     """Current progress + results. Falls back to the last saved scan when idle."""
     with _SCAN_LOCK:
-        st = {k: _SCAN[k] for k in ("running", "stage", "progress", "total",
-                                    "started", "finished", "error", "scanned_universe")}
+        st = {k: _SCAN[k] for k in ("running", "stage", "progress", "total", "started",
+                                    "finished", "error", "scanned_universe", "month_date")}
         st["results"] = _SCAN.get("results")
         st["themes"] = _SCAN.get("themes")
     if st["results"] is None:
@@ -1465,6 +1536,7 @@ def scan_status():
                 st["results"] = saved.get("results")
                 st["themes"] = saved.get("themes")
                 st["finished"] = saved.get("as_of")
+                st["month_date"] = saved.get("month_date")
                 st["scanned_universe"] = saved.get("scanned_universe", 0)
             except Exception:        # noqa: BLE001
                 pass

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus, getQuotes } from '../api'
+import { getWatchlist, addToWatchlist, removeFromWatchlist, startScan, scanStatus, getQuotes, getTally } from '../api'
 
 // Auto-refresh interval options for the live price refresh (seconds; 0 = off)
 const LIVE_INTERVALS = [[0, 'Off'], [3, '3s'], [5, '5s'], [10, '10s'], [30, '30s'], [60, '1m'], [300, '5m']]
@@ -18,9 +18,39 @@ const SCAN_SORTS = [
   ['chg', 'Today % (high→low)'],
 ]
 
+// Budget-aware position size + averaging-down plan. Deploy ~a quarter of the budget
+// now and keep the rest to add on dips (only advised for quality, non-penny names).
+function sizePlan(price, budget) {
+  if (!(price > 0) || !(budget > 0)) return null
+  const tranche = budget * 0.25            // ~4 possible entries over 2–4 weeks
+  if (price <= tranche) { const now = Math.floor(tranche / price); return { now, cost: now * price, overBudget: false, tranche } }
+  if (price <= budget) return { now: 1, cost: price, overBudget: false, tranche }   // pricey but affordable → 1 share
+  return { now: 1, cost: price, overBudget: true, tranche }                          // can't afford → show as target
+}
+// Cheap safety proxy for "OK to average down": not a penny stock, trend not collapsing.
+// (Full quality — dilution / bankruptcy / fundamentals — is confirmed on the deep page.)
+function avgDownSafe(r) {
+  return r.price >= 10 && (r.uptrend || (r.mchg != null && r.mchg > -20))
+}
+function sizeChip(r, budget) {
+  const s = sizePlan(r.price, budget)
+  if (!s) return null
+  const safe = avgDownSafe(r)
+  const a1 = r.price * 0.92, a2 = r.price * 0.85
+  const t1 = Math.max(1, Math.floor(s.tranche / a1)), t2 = Math.max(1, Math.floor(s.tranche / a2))
+  const tip = s.overBudget
+    ? `Over budget: one share is $${r.price.toFixed(2)} but your budget is $${budget.toFixed(0)}. Shown as a 1-share target.`
+    : `Start ${s.now} share${s.now > 1 ? 's' : ''} now (~$${s.cost.toFixed(0)}, ~¼ of budget). `
+      + (safe
+        ? `If it dips, add ~${t1} near $${a1.toFixed(2)} (−8%) and ~${t2} near $${a2.toFixed(2)} (−15%) to lower your average over 2–4 weeks.`
+        : `Higher risk (low price or weak trend) — keep it small; averaging down not advised. Confirm fundamentals on the deep page.`)
+  const cls = s.overBudget ? 'over' : safe ? 'ok' : 'warn'
+  return <span className={`sizetag ${cls}`} title={tip}>≈{s.now} sh · ${s.cost.toFixed(0)}{s.overBudget ? ' ⚠' : ''}</span>
+}
+
 // Reusable scan subsection: title with inline show/hide + sort + type filter, then rows.
 // This is the shared pattern for popular names, each bucket, and sector drill-downs.
-function ScanSection({ title, rows, onAddToWatchlist, onOpen, defaultSort = 'default' }) {
+function ScanSection({ title, rows, onAddToWatchlist, onOpen, budget = 0, defaultSort = 'default' }) {
   const [collapsed, setCollapsed] = useState(false)
   const [sort, setSort] = useState(defaultSort)
   const [type, setType] = useState('all')   // all | oversold | neutral | overbought
@@ -61,6 +91,7 @@ function ScanSection({ title, rows, onAddToWatchlist, onOpen, defaultSort = 'def
               {r.uptrend ? ' · uptrend' : ''}
               <span className={`rtag ${tag.cls}`}>{tag.text}</span>
             </span>
+            {budget > 0 && sizeChip(r, budget)}
             <button className="link" onClick={() => onAddToWatchlist(r.ticker)}>+ watch</button>
           </div>
         )
@@ -75,10 +106,22 @@ function OpportunityScan({ onAddToWatchlist, onOpen }) {
   const [st, setSt] = useState(null)
   const [elapsed, setElapsed] = useState(0)
   const [openTheme, setOpenTheme] = useState(null)   // sector drilled into
+  const [budgetBase, setBudgetBase] = useState(null) // available reserve
+  const [budget, setBudget] = useState('')           // editable sizing budget
   const pollRef = useRef(null)
 
   const load = () => scanStatus().then(setSt).catch(() => {})
   useEffect(() => { load() }, [])
+
+  // Default the sizing budget to your available re-entry reserve (editable).
+  useEffect(() => {
+    getTally().then(d => {
+      const avail = Math.max(0, d.reserve_net ?? d.reentry_reserve ?? 0)
+      setBudgetBase(avail)
+      setBudget(b => (b === '' ? String(Math.round(avail)) : b))
+    }).catch(() => {})
+  }, [])
+  const budgetNum = parseFloat(budget) || 0
 
   // poll while a scan is running
   useEffect(() => {
@@ -138,6 +181,20 @@ function OpportunityScan({ onAddToWatchlist, onOpen }) {
         </p>
       )}
 
+      {(results.length > 0 || themes.length > 0) && (
+        <div className="budgetbar">
+          <span className="muted small">Sizing budget $</span>
+          <input type="number" min="0" value={budget} onChange={e => setBudget(e.target.value)} style={{ width: '90px' }} />
+          {budgetBase != null && (
+            <button className="link" title="Use your available re-entry reserve"
+                    onClick={() => setBudget(String(Math.round(budgetBase)))}>
+              reserve ${budgetBase.toFixed(0)}
+            </button>
+          )}
+          <span className="muted small">≈ = start ~¼ now, keep the rest to average down on quality dips · hover a size for the plan</span>
+        </div>
+      )}
+
       {themes.length > 0 && (() => {
         const openT = themes.find(t => t.theme === openTheme)
         return (
@@ -155,7 +212,7 @@ function OpportunityScan({ onAddToWatchlist, onOpen }) {
             </div>
             {openT && (openT.stocks?.length
               ? <ScanSection title={`${openT.theme} — sector names`} rows={openT.stocks}
-                             onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="rsi" />
+                             onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} budget={budgetNum} defaultSort="rsi" />
               : <p className="muted small">No names to show for {openT.theme} in this scan.</p>)}
           </>
         )
@@ -164,20 +221,20 @@ function OpportunityScan({ onAddToWatchlist, onOpen }) {
       {results.filter(r => r.popular).length > 0 && (
         <ScanSection title="★ Popular names — at a glance"
                      rows={results.filter(r => r.popular)}
-                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="rsi" />
+                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} budget={budgetNum} defaultSort="rsi" />
       )}
 
       {results.filter(r => r.mchg != null && r.mchg >= 12).length > 0 && (
         <ScanSection title="↑ Monthly climbers — trending up over ~1 month"
                      rows={results.filter(r => r.mchg != null && r.mchg >= 12)}
-                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} defaultSort="mchg" />
+                     onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} budget={budgetNum} defaultSort="mchg" />
       )}
 
       {buckets.map(([b, label]) => {
         const rows = results.filter(r => r.bucket === b && !r.popular)
         if (!rows.length) return null
         return <ScanSection key={b} title={label} rows={rows}
-                            onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} />
+                            onAddToWatchlist={onAddToWatchlist} onOpen={onOpen} budget={budgetNum} />
       })}
 
       {!st?.running && results.length === 0 && !st?.error && (

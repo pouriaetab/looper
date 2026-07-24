@@ -35,6 +35,21 @@ export const getTally = () => fetch('/api/tally').then(j)
 export const getLedger = () => fetch('/api/ledger').then(j)
 export const getPairedLedger = () => fetch('/api/ledger/paired').then(j)
 
+// Profit deployment: net profit taken -> target ETF/theme allocation
+export const getProfit = () => fetch('/api/profit').then(j)
+export const setAllocation = (sleeves) =>
+  fetch('/api/profit/allocation', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sleeves }),
+  }).then(j)
+export const deployProfit = (amount, note = null) =>
+  fetch('/api/profit/deploy', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, note }),
+  }).then(j)
+export const undoDeployment = (idx) =>
+  fetch(`/api/profit/deploy/${idx}`, { method: 'DELETE' }).then(j)
+
 // Manually add to (direction 'add') or reduce (direction 'reduce') the re-entry reserve.
 export const adjustReserve = (amount, direction) =>
   fetch('/api/reserve/adjust', {

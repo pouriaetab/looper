@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { getTally, getPairedLedger, updateLedgerRow, deleteLedgerRow, adjustReserve } from '../api'
+import ProfitDeploy from './ProfitDeploy'
 
 function money(n) {
   if (n == null || isNaN(n)) return '—'
@@ -350,6 +351,7 @@ export default function Tally({ refreshKey }) {
           {active === 'Re-entry reserve' &&
             <ReserveAdjust t={t} onDone={load}
               tied={trips.filter(x => x.open).reduce((s, x) => s + (x.reserve_used || 0), 0)} />}
+          {active === 'Net profit taken' && <ProfitDeploy />}
           {(active === 'Holdings' || active === 'Unrealized P/L')
             ? <HoldingsTable holdings={t.holdings || []} />
             : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} />}

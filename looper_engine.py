@@ -943,6 +943,118 @@ def adjust_reserve(amount, direction="add", when=None, note=None):
     return {"direction": direction, "amount": round(amount, 4)}
 
 
+# ---------------------------------------------------------------------------
+# Profit deployment: take "net profit taken" and deploy it into a target ETF /
+# theme allocation in a separate investing account. Tracks a running available
+# balance (net taken − everything deployed) plus a history of each deployment.
+# ---------------------------------------------------------------------------
+DEPLOY_FILE = DATA_DIR / "deployments.json"
+
+DEFAULT_ALLOCATION = [
+    {"name": "US total market", "pct": 45, "tickers": ["VTI"]},
+    {"name": "International", "pct": 30, "tickers": ["VXUS"]},
+    {"name": "Semiconductors", "pct": 5, "tickers": ["SMH", "SNDK", "MU"]},
+    {"name": "Cybersecurity", "pct": 5, "tickers": ["HACK", "PLTR"]},
+    {"name": "Quantum computing", "pct": 5, "tickers": ["QTUM", "IONQ"]},
+    {"name": "Nuclear / energy", "pct": 5, "tickers": ["OKLO", "NLR"]},
+    {"name": "Biotech", "pct": 5, "tickers": ["ARKG"]},
+]
+
+
+def read_deployments():
+    if DEPLOY_FILE.exists():
+        try:
+            return json.load(open(DEPLOY_FILE))
+        except Exception:        # noqa: BLE001
+            return []
+    return []
+
+
+def _write_deployments(items):
+    DATA_DIR.mkdir(exist_ok=True)
+    with open(DEPLOY_FILE, "w") as f:
+        json.dump(items, f, indent=2)
+
+
+def get_allocation():
+    return load_config().get("profit_allocation") or DEFAULT_ALLOCATION
+
+
+def save_allocation(sleeves):
+    """Replace the target allocation (list of {name, pct, tickers})."""
+    cleaned = []
+    for s in sleeves or []:
+        name = (s.get("name") or "").strip()
+        if not name:
+            continue
+        cleaned.append({
+            "name": name,
+            "pct": round(float(s.get("pct") or 0), 4),
+            "tickers": [t.strip().upper() for t in (s.get("tickers") or []) if t and t.strip()],
+        })
+    cfg = load_config()
+    cfg["profit_allocation"] = cleaned
+    save_config(cfg)
+    return cleaned
+
+
+def deployment_summary():
+    """Everything the Profit Deploy panel needs: total net profit taken, how much
+    has been deployed, what's available now, the target allocation, live prices for
+    each sleeve's primary ticker, and the deployment history (most recent first)."""
+    sleeves = get_allocation()
+    net = portfolio_tally()["net_profit_taken"]
+    depl = read_deployments()
+    total = round(sum(float(d.get("amount") or 0) for d in depl), 2)
+    prices = {}
+    try:
+        primaries = [(s.get("tickers") or [None])[0] for s in sleeves]
+        q = fetch_quotes([p for p in primaries if p])
+        prices = {k: v["price"] for k, v in q.items()}
+    except Exception:        # noqa: BLE001
+        pass
+    return {
+        "net_profit_taken": net,
+        "total_deployed": total,
+        "available": round(net - total, 2),
+        "allocation": sleeves,
+        "prices": prices,
+        "deployments": list(reversed([dict(d, idx=i) for i, d in enumerate(depl)])),
+    }
+
+
+def record_deployment(amount, note=None):
+    """Deploy `amount` of the available profit across the current allocation, storing
+    the per-sleeve breakdown. Reduces the available balance."""
+    amount = round(float(amount), 2)
+    if amount <= 0:
+        raise ValueError("Amount must be greater than 0.")
+    summ = deployment_summary()
+    if amount > summ["available"] + 1e-6:
+        raise ValueError(f"Only ${summ['available']:.2f} is available to deploy.")
+    breakdown = [{
+        "name": s["name"], "pct": s.get("pct", 0),
+        "amount": round(amount * float(s.get("pct") or 0) / 100.0, 2),
+        "tickers": s.get("tickers", []),
+    } for s in summ["allocation"]]
+    ts, day = _now_parts()
+    depl = read_deployments()
+    depl.append({"timestamp": ts, "date": day, "amount": amount,
+                 "breakdown": breakdown, "note": note or ""})
+    _write_deployments(depl)
+    return deployment_summary()
+
+
+def delete_deployment(index):
+    """Undo one deployment (adds the amount back to available)."""
+    depl = read_deployments()
+    if index < 0 or index >= len(depl):
+        raise ValueError("Deployment not found.")
+    removed = depl.pop(index)
+    _write_deployments(depl)
+    return removed
+
+
 def _stock_cfg(cfg, stock):
     """Merge one stock's fields with the global thresholds/reinvest settings so the
     existing evaluate()/plan_reentry() code can consume it unchanged."""

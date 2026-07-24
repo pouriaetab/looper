@@ -226,6 +226,48 @@ def reserve_adjust(body: ReserveAdjustIn):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ============================================================================
+# Profit deployment (net profit taken -> target ETF/theme allocation)
+# ============================================================================
+class AllocationIn(BaseModel):
+    sleeves: list
+
+
+class DeployIn(BaseModel):
+    amount: float
+    note: Optional[str] = None
+
+
+@app.get("/api/profit")
+def profit_summary():
+    """Net profit taken, deployed, available, allocation, live prices, history."""
+    return engine.deployment_summary()
+
+
+@app.post("/api/profit/allocation")
+def profit_allocation(body: AllocationIn):
+    """Replace the target allocation (list of {name, pct, tickers})."""
+    return {"allocation": engine.save_allocation(body.sleeves)}
+
+
+@app.post("/api/profit/deploy")
+def profit_deploy(body: DeployIn):
+    """Deploy an amount of available profit across the current allocation."""
+    try:
+        return engine.record_deployment(body.amount, body.note)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/profit/deploy/{index}")
+def profit_deploy_undo(index: int):
+    """Undo one deployment (adds the amount back to available)."""
+    try:
+        return engine.delete_deployment(index)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.delete("/api/stocks/{ticker}")
 def delete(ticker: str):
     return {"stocks": engine.remove_stock(ticker)}

@@ -230,6 +230,9 @@ input:focus, select:focus {
 .reserveadj button { font-size: 12px; padding: 5px 10px; }
 .ledgertable tr.resrow td { background: rgba(200, 100, 63, 0.05); font-style: italic; }
 
+/* Profit deployment panel (net profit taken -> target allocation) */
+.deploybox { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-alt); }
+
 /* Live price refresh bar above the Sell/Buy columns */
 .liverow { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 10px; }
 .liverow .link { font-size: 12px; font-weight: 600; }

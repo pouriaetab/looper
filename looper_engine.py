@@ -857,6 +857,11 @@ def portfolio_tally():
     reserve_remaining = round(max(reserve_net, 0.0), 2)
     reserve_overspent = round(max(-reserve_net, 0.0), 2)
 
+    # Net profit taken: all-time total, minus what's been deployed to the investing
+    # account -> what's still available to deploy.
+    net_taken = _sum("net_profit_taken")
+    net_deployed = round(sum(float(d.get("amount") or 0) for d in read_deployments()), 2)
+
     return {
         "positions": len(holdings),
         "total_shares": round(total_shares, 6),
@@ -866,7 +871,9 @@ def portfolio_tally():
         "unrealized_priced": priced,
         "unrealized_total": len(holdings),
         "realized_profit": _sum("realized_profit"),
-        "net_profit_taken": _sum("net_profit_taken"),
+        "net_profit_taken": net_taken,
+        "net_profit_deployed": net_deployed,
+        "net_profit_available": round(net_taken - net_deployed, 2),
         "reentry_reserve": reserve_remaining,
         "reserve_added": reserve_added,
         "reserve_used": reserve_used,

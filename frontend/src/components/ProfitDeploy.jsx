@@ -9,7 +9,7 @@ function money(n) {
 
 // Deploy "net profit taken" into a target ETF/theme allocation, with a running
 // available balance and a history of past deployments.
-export default function ProfitDeploy() {
+export default function ProfitDeploy({ onChange }) {
   const [s, setS] = useState(null)
   const [amount, setAmount] = useState('')
   const [editing, setEditing] = useState(false)
@@ -46,13 +46,14 @@ export default function ProfitDeploy() {
       const d = await deployProfit(amt)
       setS(d); setAmount(String(Math.max(0, d.available).toFixed(2)))
       setMsg(`Deployed ${money(amt)}. ${money(d.available)} left available.`)
+      onChange && onChange()
     } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
   const undo = async (idx) => {
     if (!window.confirm('Undo this deployment? The amount goes back to available.')) return
     setBusy(true); setErr(null)
-    try { await undoDeployment(idx); load() } catch (e) { setErr(e.message) } finally { setBusy(false) }
+    try { await undoDeployment(idx); load(); onChange && onChange() } catch (e) { setErr(e.message) } finally { setBusy(false) }
   }
 
   const startEdit = () => {

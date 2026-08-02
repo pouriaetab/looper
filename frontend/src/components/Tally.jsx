@@ -235,16 +235,7 @@ function LedgerTable({ trips, field, onEdited }) {
             {shown.length === 0 && <tr><td colSpan={13} className="muted">No round-trips match this filter.</td></tr>}
           </tbody>
           <tfoot>
-            {isReserve ? (
-              <tr>
-                <td colSpan={10} style={{ textAlign: 'right', fontWeight: 600 }}>
-                  In {money(reserveAdded)} − out {money(reserveUsed)} =
-                </td>
-                <td colSpan={3} className={`hl ${reserveRemaining < 0 ? 'neg' : 'pos'}`} style={{ fontWeight: 700 }}>
-                  {reserveRemaining < 0 ? `overspent ${money(-reserveRemaining)}` : `${money(reserveRemaining)} left`}
-                </td>
-              </tr>
-            ) : (field === 'realized_profit' || field === 'net_profit_taken') ? (
+            {(field === 'realized_profit' || field === 'net_profit_taken') ? (
               <tr>
                 <td colSpan={8} style={{ textAlign: 'right', fontWeight: 600 }}>Total (filtered)</td>
                 <td className={hl('realized_profit')}>{field === 'realized_profit' ? money(realizedTotal) : ''}</td>
@@ -331,9 +322,10 @@ export default function Tally({ refreshKey }) {
         <Card label="Realized P/L" value={money(t.realized_profit)} tone={tone(t.realized_profit)}
               active={active === 'Realized P/L'} onClick={() => toggle('Realized P/L')}
               sub="from sold shares" />
-        <Card label="Net profit taken" value={money(t.net_profit_taken)} tone={tone(t.net_profit_taken)}
+        <Card label="Net profit left" value={money(t.net_profit_available ?? t.net_profit_taken)}
+              tone={tone(t.net_profit_available ?? t.net_profit_taken)}
               active={active === 'Net profit taken'} onClick={() => toggle('Net profit taken')}
-              sub={`after ${Math.round(t.reinvest_profit_pct * 100)}% reinvest`} />
+              sub={`${money(t.net_profit_taken)} taken all-time${t.net_profit_deployed ? ` · ${money(t.net_profit_deployed)} deployed` : ''}`} />
         <Card label="Re-entry reserve" value={money(t.reserve_net ?? t.reentry_reserve)}
               tone={(t.reserve_net ?? 0) < 0 ? 'neg' : ''}
               active={active === 'Re-entry reserve'} onClick={() => toggle('Re-entry reserve')}
@@ -351,7 +343,7 @@ export default function Tally({ refreshKey }) {
           {active === 'Re-entry reserve' &&
             <ReserveAdjust t={t} onDone={load}
               tied={trips.filter(x => x.open).reduce((s, x) => s + (x.reserve_used || 0), 0)} />}
-          {active === 'Net profit taken' && <ProfitDeploy />}
+          {active === 'Net profit taken' && <ProfitDeploy onChange={load} />}
           {(active === 'Holdings' || active === 'Unrealized P/L')
             ? <HoldingsTable holdings={t.holdings || []} />
             : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} />}

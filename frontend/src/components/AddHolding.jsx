@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { addStock, removeStock, sellStock, getConfig } from '../api'
 
-const EMPTY = { ticker: '', entry_price: '', shares: '1', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: false }
+const EMPTY = { ticker: '', entry_price: '', total: '', mode: 'price', shares: '', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: false }
 
 // Build an ISO timestamp from optional date + time inputs.
 // Both blank -> null (backend uses the current date/time). Otherwise use what's given.
@@ -30,21 +30,24 @@ export default function AddHolding({ onChange }) {
     e.preventDefault()
     setMsg(null)
     setMsgType(null)
-    if (!f.ticker || !(parseFloat(f.entry_price) > 0)) {
-      setMsg('Enter a symbol and a buy price above 0.')
+    const shares = parseFloat(f.shares)
+    if (!f.ticker || !(shares > 0)) {
+      setMsg('Enter a symbol and number of shares.')
       setMsgType('error')
       return
     }
-    if (!(parseFloat(f.shares) > 0)) {
-      setMsg('Shares must be greater than 0.')
+    // Price per share, or derive it from the total you paid (broker rounds the price).
+    const price = f.mode === 'total' ? (parseFloat(f.total) / shares) : parseFloat(f.entry_price)
+    if (!(price > 0)) {
+      setMsg(f.mode === 'total' ? 'Enter the total amount you paid.' : 'Enter a buy price above 0.')
       setMsgType('error')
       return
     }
     try {
       await addStock({
         ticker: f.ticker.toUpperCase(),
-        entry_price: parseFloat(f.entry_price),
-        shares: parseFloat(f.shares || '1'),
+        entry_price: price,
+        shares,
         state: f.state,
         analyst_target: f.analyst_target ? parseFloat(f.analyst_target) : null,
         acquired_date: f.acquired_date || null,
@@ -64,16 +67,18 @@ export default function AddHolding({ onChange }) {
 
   const openSell = (s) => {
     setSellFor(s.ticker)
-    setSellForm({ shares: String(s.position?.shares ?? ''), price: '', date: '', time: '' })
+    setSellForm({ shares: '', price: '', total: '', mode: 'price', date: '', time: '' })
     setMsg(null)
     setMsgType(null)
   }
 
   const confirmSell = async (ticker) => {
     const shares = parseFloat(sellForm.shares)
-    const price = parseFloat(sellForm.price)
+    const price = sellForm.mode === 'total' ? (parseFloat(sellForm.total) / shares) : parseFloat(sellForm.price)
     if (!(shares > 0) || !(price > 0)) {
-      setMsg('Enter shares sold and sale price (both above 0).')
+      setMsg(sellForm.mode === 'total'
+        ? 'Enter shares sold and the total amount received.'
+        : 'Enter shares sold and sale price (both above 0).')
       setMsgType('error')
       return
     }
@@ -128,16 +133,36 @@ export default function AddHolding({ onChange }) {
           <input placeholder="e.g., NVDA, BRKR" value={f.ticker} onChange={set('ticker')} />
         </div>
 
+        <div style={{ display: 'flex', gap: '12px', fontSize: '12px', margin: '2px 0 2px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="mode" checked={f.mode === 'price'} onChange={() => setF({ ...f, mode: 'price' })} style={{ width: 'auto' }} />
+            Per-share price
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <input type="radio" name="mode" checked={f.mode === 'total'} onChange={() => setF({ ...f, mode: 'total' })} style={{ width: 'auto' }} />
+            Total $ paid
+          </label>
+        </div>
+
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
-            <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Entry Price ($)</label>
-            <input placeholder="0.00" type="number" step="0.0001" value={f.entry_price} onChange={set('entry_price')} />
+            <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>
+              {f.mode === 'total' ? 'Total Buy ($)' : 'Entry Price ($)'}
+            </label>
+            {f.mode === 'total'
+              ? <input placeholder="e.g., 1209.52" type="number" step="0.01" value={f.total} onChange={set('total')} />
+              : <input placeholder="0.00" type="number" step="0.0001" value={f.entry_price} onChange={set('entry_price')} />}
           </div>
           <div>
             <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Shares</label>
-            <input placeholder="1" type="number" step="0.1" value={f.shares} onChange={set('shares')} />
+            <input placeholder="# shares" type="number" step="0.1" value={f.shares} onChange={set('shares')} />
           </div>
         </div>
+        {f.mode === 'total' && parseFloat(f.total) > 0 && parseFloat(f.shares) > 0 && (
+          <p style={{ margin: '-4px 0 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+            = ${(parseFloat(f.total) / parseFloat(f.shares)).toFixed(4)} / share
+          </p>
+        )}
 
         <div>
           <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Position Status</label>
@@ -224,19 +249,32 @@ export default function AddHolding({ onChange }) {
 
               {sellFor === s.ticker && (
                 <>
-                <div className="sellrow" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', width: '100%', marginTop: '8px' }}>
+                <div style={{ display: 'flex', gap: '12px', fontSize: '12px', width: '100%', marginTop: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input type="radio" checked={(sellForm.mode || 'price') === 'price'} onChange={() => setSellForm({ ...sellForm, mode: 'price' })} style={{ width: 'auto' }} />
+                    Per-share
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <input type="radio" checked={sellForm.mode === 'total'} onChange={() => setSellForm({ ...sellForm, mode: 'total' })} style={{ width: 'auto' }} />
+                    Total $ received
+                  </label>
+                </div>
+                <div className="sellrow" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', width: '100%', marginTop: '6px' }}>
                   <input
                     type="number" step="0.1" placeholder="shares sold"
                     value={sellForm.shares}
                     onChange={(e) => setSellForm({ ...sellForm, shares: e.target.value })}
                     style={{ width: '110px' }}
                   />
-                  <input
-                    type="number" step="0.0001" placeholder="sale price $"
-                    value={sellForm.price}
-                    onChange={(e) => setSellForm({ ...sellForm, price: e.target.value })}
-                    style={{ width: '120px' }}
-                  />
+                  {sellForm.mode === 'total'
+                    ? <input type="number" step="0.01" placeholder="total sold $"
+                        value={sellForm.total}
+                        onChange={(e) => setSellForm({ ...sellForm, total: e.target.value })}
+                        style={{ width: '120px' }} />
+                    : <input type="number" step="0.0001" placeholder="sale price $"
+                        value={sellForm.price}
+                        onChange={(e) => setSellForm({ ...sellForm, price: e.target.value })}
+                        style={{ width: '120px' }} />}
                   <input
                     type="date" title="Sale date (optional)"
                     value={sellForm.date}

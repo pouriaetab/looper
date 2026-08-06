@@ -9,6 +9,39 @@ function money(n) {
 }
 
 const num = (v) => (v === '' || v == null ? null : parseFloat(v))
+const R = (x, p = 4) => (x == null || isNaN(x) ? null : Math.round(x * 10 ** p) / 10 ** p)
+
+// When editing a round-trip cell, keep every dependent cell in sync:
+//   total buy  <-> buy price   (via shares)
+//   total sell <-> sell price  (via shares)
+//   realized = proceeds - cost ; net = realized - reinvest*gain ; reserve = cost + reinvest*gain
+// The field currently being typed is never overwritten mid-keystroke.
+function recalcDraft(d, key, reinvest = 0.5) {
+  const n = (v) => { const x = parseFloat(v); return (v === '' || v == null || isNaN(x)) ? null : x }
+  const nd = { ...d }
+  const sh = n(nd.shares)
+  let bp = n(nd.buy_price), sp = n(nd.sell_price), cost = n(nd.cost_basis), proc = n(nd.proceeds)
+
+  if (key === 'cost_basis' && sh) bp = cost != null ? cost / sh : bp
+  else if ((key === 'buy_price' || key === 'shares') && sh != null && bp != null) cost = R(sh * bp)
+
+  if (key === 'proceeds' && sh) sp = proc != null ? proc / sh : sp
+  else if ((key === 'sell_price' || key === 'shares') && sh != null && sp != null) proc = R(sh * sp)
+
+  if (key !== 'buy_price' && bp != null) nd.buy_price = String(R(bp, 6))
+  if (key !== 'sell_price' && sp != null) nd.sell_price = String(R(sp, 6))
+  if (key !== 'cost_basis' && cost != null) nd.cost_basis = String(R(cost))
+  if (key !== 'proceeds' && proc != null) nd.proceeds = String(R(proc))
+  if (cost != null && proc != null) {
+    const realized = R(proc - cost), gain = Math.max(realized, 0)
+    if (key !== 'realized_profit') nd.realized_profit = String(realized)
+    if (key !== 'net_profit_taken') nd.net_profit_taken = String(R(realized - reinvest * gain))
+    if (key !== 'reentry_reserve') nd.reentry_reserve = String(R(cost + reinvest * gain))
+  }
+  if (nd.reserve_used !== '' && nd.reserve_used != null && cost != null && key !== 'reserve_used')
+    nd.reserve_used = String(R(cost))
+  return nd
+}
 
 // Which ledger column each money card highlights
 const FIELD = {
@@ -56,7 +89,7 @@ function HoldingsTable({ holdings }) {
 }
 
 // One round-trip = a buy FIFO-paired with the sell that closed it (or an open buy).
-function LedgerTable({ trips, field, onEdited }) {
+function LedgerTable({ trips, field, onEdited, reinvest = 0.5 }) {
   const isReserve = field === 'reentry_reserve'
   const hl = (f) => (field === f ? 'hl' : '')
 
@@ -106,7 +139,8 @@ function LedgerTable({ trips, field, onEdited }) {
     })
   }
   const cancel = () => { setEditKey(null); setDraft({}); setErr(null) }
-  const dset = (k) => (e) => setDraft({ ...draft, [k]: e.target.value })
+  // edit a cell and auto-sync every dependent cell (totals <-> prices <-> derived)
+  const dset = (k) => (e) => setDraft(d => recalcDraft({ ...d, [k]: e.target.value }, k, reinvest))
 
   const save = async (t) => {
     setBusy(true); setErr(null)
@@ -124,12 +158,10 @@ function LedgerTable({ trips, field, onEdited }) {
         const sellPatch = {
           ticker: draft.ticker, shares: draft.shares, date: draft.sell_date,
           price: draft.sell_price, proceeds: draft.proceeds,
+          // the sell's cost basis references the buy price, so keep them in lockstep
+          entry_price: draft.buy_price, cost_basis: draft.cost_basis,
           realized_profit: draft.realized_profit, net_profit_taken: draft.net_profit_taken,
           reentry_reserve: draft.reentry_reserve,
-        }
-        if (t.buy_idx == null) {   // legacy sell-only: buy price lives on this row's entry_price
-          sellPatch.entry_price = draft.buy_price
-          sellPatch.cost_basis = draft.cost_basis
         }
         await updateLedgerRow(t.sell_idx, sellPatch)
       }
@@ -346,7 +378,7 @@ export default function Tally({ refreshKey }) {
           {active === 'Net profit taken' && <ProfitDeploy onChange={load} />}
           {(active === 'Holdings' || active === 'Unrealized P/L')
             ? <HoldingsTable holdings={t.holdings || []} />
-            : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} />}
+            : <LedgerTable trips={trips} field={FIELD[active]} onEdited={load} reinvest={t.reinvest_profit_pct ?? 0.5} />}
         </div>
       )}
     </div>

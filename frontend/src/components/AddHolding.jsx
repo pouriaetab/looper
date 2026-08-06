@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { addStock, removeStock, sellStock, getConfig } from '../api'
 
-const EMPTY = { ticker: '', entry_price: '', total: '', mode: 'price', shares: '', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: false }
+const EMPTY = { ticker: '', entry_price: '', total: '', mode: 'total', shares: '', state: 'holding', analyst_target: '', acquired_date: '', acquired_time: '', from_reserve: true }
 
 // Build an ISO timestamp from optional date + time inputs.
 // Both blank -> null (backend uses the current date/time). Otherwise use what's given.
@@ -67,13 +67,14 @@ export default function AddHolding({ onChange }) {
 
   const openSell = (s) => {
     setSellFor(s.ticker)
-    setSellForm({ shares: '', price: '', total: '', mode: 'price', date: '', time: '' })
+    setSellForm({ shares: '', price: '', total: '', mode: 'total', date: '', time: '', held: s.position?.shares ?? '' })
     setMsg(null)
     setMsgType(null)
   }
 
   const confirmSell = async (ticker) => {
-    const shares = parseFloat(sellForm.shares)
+    // shares left blank -> sell the full held amount shown as the placeholder
+    const shares = parseFloat(sellForm.shares || sellForm.held)
     const price = sellForm.mode === 'total' ? (parseFloat(sellForm.total) / shares) : parseFloat(sellForm.price)
     if (!(shares > 0) || !(price > 0)) {
       setMsg(sellForm.mode === 'total'
@@ -261,7 +262,9 @@ export default function AddHolding({ onChange }) {
                 </div>
                 <div className="sellrow" style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center', width: '100%', marginTop: '6px' }}>
                   <input
-                    type="number" step="0.1" placeholder="shares sold"
+                    type="number" step="0.1"
+                    placeholder={sellForm.held ? `${sellForm.held} (all)` : 'shares sold'}
+                    title="Blank = sell all held shares"
                     value={sellForm.shares}
                     onChange={(e) => setSellForm({ ...sellForm, shares: e.target.value })}
                     style={{ width: '110px' }}

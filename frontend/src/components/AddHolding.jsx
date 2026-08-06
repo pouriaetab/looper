@@ -131,7 +131,7 @@ export default function AddHolding({ onChange }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           <div>
             <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Entry Price ($)</label>
-            <input placeholder="0.00" type="number" step="0.01" value={f.entry_price} onChange={set('entry_price')} />
+            <input placeholder="0.00" type="number" step="0.0001" value={f.entry_price} onChange={set('entry_price')} />
           </div>
           <div>
             <label style={{ fontSize: '12px', fontWeight: '600', display: 'block', marginBottom: '4px' }}>Shares</label>
@@ -232,7 +232,7 @@ export default function AddHolding({ onChange }) {
                     style={{ width: '110px' }}
                   />
                   <input
-                    type="number" step="0.01" placeholder="sale price $"
+                    type="number" step="0.0001" placeholder="sale price $"
                     value={sellForm.price}
                     onChange={(e) => setSellForm({ ...sellForm, price: e.target.value })}
                     style={{ width: '120px' }}
